@@ -602,24 +602,24 @@ export class EntityValidationService {
         });
       }
       
-      // Check for reasonable scheduling hours (6 AM to 10 PM)
+      // Check for reasonable scheduling hours (7 AM to 10 PM)
       const startHour = start.getHours();
       const endHour = end.getHours();
       
-      if (startHour < 6 || startHour > 22) {
+      if (startHour < 7 || startHour > 22) {
         warnings.push({
           row: rowNumber,
           field: 'startTime',
-          message: `Session starts at ${startHour}:00 which is outside typical hours (6 AM - 10 PM)`,
+          message: `Session starts at ${startHour}:00 which is outside typical hours (7 AM - 10 PM)`,
           suggestedFix: 'Verify the start time is correct'
         });
       }
       
-      if (endHour < 6 || endHour > 22) {
+      if (endHour < 7 || endHour > 22) {
         warnings.push({
           row: rowNumber,
           field: 'endTime',
-          message: `Session ends at ${endHour}:00 which is outside typical hours (6 AM - 10 PM)`,
+          message: `Session ends at ${endHour}:00 which is outside typical hours (7 AM - 10 PM)`,
           suggestedFix: 'Verify the end time is correct'
         });
       }

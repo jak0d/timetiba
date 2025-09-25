@@ -69,11 +69,14 @@ describe('TimetableGrid', () => {
     expect(screen.getByText('Wednesday')).toBeInTheDocument();
     expect(screen.getByText('Thursday')).toBeInTheDocument();
     expect(screen.getByText('Friday')).toBeInTheDocument();
+    expect(screen.getByText('Saturday')).toBeInTheDocument();
+    expect(screen.getByText('Sunday')).toBeInTheDocument();
 
     // Check that time slots are rendered
+    expect(screen.getByText('7:00 AM')).toBeInTheDocument();
     expect(screen.getByText('8:00 AM')).toBeInTheDocument();
     expect(screen.getByText('9:00 AM')).toBeInTheDocument();
-    expect(screen.getByText('10:00 AM')).toBeInTheDocument();
+    expect(screen.getByText('10:00 PM')).toBeInTheDocument();
   });
 
   it('renders scheduled sessions in correct time slots', () => {
@@ -142,7 +145,7 @@ describe('TimetableGrid', () => {
 
     // Grid should still render with empty slots
     expect(screen.getByText('Monday')).toBeInTheDocument();
-    expect(screen.getByText('8:00 AM')).toBeInTheDocument();
+    expect(screen.getByText('7:00 AM')).toBeInTheDocument();
     
     // No sessions should be visible
     expect(screen.queryByText('CS101')).not.toBeInTheDocument();

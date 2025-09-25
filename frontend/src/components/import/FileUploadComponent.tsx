@@ -113,7 +113,10 @@ export const FileUploadComponent: React.FC<FileUploadProps> = ({
               : f
           )
         );
+        
+        console.log('FileUploadComponent: Upload completed successfully');
       } catch (error) {
+        console.error('FileUploadComponent: Upload failed:', error);
         setUploadedFiles(prev => 
           prev.map(f => 
             f.id === fileId 

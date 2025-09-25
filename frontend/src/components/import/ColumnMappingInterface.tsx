@@ -24,14 +24,10 @@ import {
   Refresh,
   AutoFixHigh
 } from '@mui/icons-material';
+import { ColumnMapping as BaseColumnMapping } from '../../services/importApi';
 
-interface ColumnMapping {
-  sourceColumn: string;
-  targetField: string;
-  confidence: number;
-  required: boolean;
-  dataType: string;
-  suggestions: string[];
+interface ColumnMapping extends BaseColumnMapping {
+  suggestions?: string[];
 }
 
 interface MappingValidation {
@@ -355,13 +351,13 @@ export const ColumnMappingInterface: React.FC<ColumnMappingProps> = ({
                     </Grid>
                   </Grid>
                   
-                  {mapping.suggestions.length > 1 && (
+                  {mapping.suggestions && mapping.suggestions.length > 1 && (
                     <Box mt={2}>
                       <Typography variant="caption" color="text.secondary">
                         Suggestions:
                       </Typography>
                       <Box display="flex" flexWrap="wrap" gap={1} mt={1}>
-                        {mapping.suggestions.slice(1, 4).map(suggestion => {
+                        {(mapping.suggestions || []).slice(1, 4).map(suggestion => {
                           const field = targetFields.find(f => f.name === suggestion);
                           return (
                             <Chip

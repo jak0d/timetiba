@@ -104,6 +104,7 @@ interface ImportWorkflowActions {
   // Utility actions
   setError: (error: string | null) => void;
   clearError: () => void;
+  clearUploadError: () => void;
 }
 
 const initialState: ImportWorkflowState = {
@@ -150,21 +151,40 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
 
       // File upload actions
       uploadFile: async (file: File) => {
-        set({ isUploading: true, uploadError: null });
+        console.log('Starting file upload:', file.name, file.size);
+        set({ isUploading: true, uploadError: null, error: null });
         try {
           const response = await importApi.uploadFile(file);
+          console.log('Upload response:', response);
+          
+          // Ensure response has the expected structure
+          if (!response || !response.fileId) {
+            throw new Error('Invalid response from server: missing fileId');
+          }
+          
+          const metadata = response.metadata || { rows: 0, columns: [], preview: [] };
+          const columns = metadata.columns || [];
+          
           set({
             uploadedFile: {
               id: response.fileId,
-              filename: response.filename,
-              size: response.size,
-              metadata: response.metadata,
+              filename: response.filename || file.name,
+              size: response.size || file.size,
+              metadata: {
+                rows: metadata.rows || 0,
+                columns: columns,
+                preview: metadata.preview || []
+              },
             },
-            sourceColumns: response.metadata.columns,
+            sourceColumns: columns,
             isUploading: false,
+            uploadError: null, // Explicitly clear upload error on success
+            error: null, // Also clear general error
             currentStep: 'mapping',
           });
+          console.log('Upload successful, state updated');
         } catch (error) {
+          console.error('Upload failed:', error);
           set({
             uploadError: error instanceof Error ? error.message : 'Upload failed',
             isUploading: false,
@@ -432,7 +452,11 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
       },
 
       clearError: () => {
-        set({ error: null });
+        set({ error: null, uploadError: null });
+      },
+
+      clearUploadError: () => {
+        set({ uploadError: null });
       },
     }),
     {

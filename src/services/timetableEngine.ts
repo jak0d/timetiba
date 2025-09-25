@@ -498,8 +498,8 @@ export class TimetableEngine {
    */
   private analyzeVenueUtilization(sessions: ScheduledSession[]): Map<string, number> {
     const venueHours = new Map<string, number>();
-    const totalPossibleHours = 8; // Assume 8 hours per day
-    const workingDays = 5; // Monday to Friday
+    const totalPossibleHours = 15; // 7 AM to 10 PM = 15 hours per day
+    const workingDays = 7; // Monday to Sunday
     const totalHours = totalPossibleHours * workingDays;
     
     for (const session of sessions) {
@@ -789,21 +789,29 @@ export class TimetableEngine {
   }> {
     const slots: Array<{ start_time: string; end_time: string; day_of_week: number }> = [];
     const workingHours = [
+      { start: 7, end: 8 },
+      { start: 8, end: 9 },
       { start: 9, end: 10 },
       { start: 10, end: 11 },
       { start: 11, end: 12 },
-      { start: 13, end: 14 }, // After lunch
+      { start: 12, end: 13 },
+      { start: 13, end: 14 },
       { start: 14, end: 15 },
       { start: 15, end: 16 },
-      { start: 16, end: 17 }
+      { start: 16, end: 17 },
+      { start: 17, end: 18 },
+      { start: 18, end: 19 },
+      { start: 19, end: 20 },
+      { start: 20, end: 21 },
+      { start: 21, end: 22 }
     ];
 
     const current = new Date(startDate);
     while (current <= endDate) {
       const dayOfWeek = current.getDay();
       
-      // Only weekdays (Monday = 1, Friday = 5)
-      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      // All days of the week (Sunday = 0, Saturday = 6)
+      if (dayOfWeek >= 0 && dayOfWeek <= 6) {
         for (const hour of workingHours) {
           const startTime = new Date(current);
           startTime.setHours(hour.start, 0, 0, 0);
@@ -814,7 +822,7 @@ export class TimetableEngine {
           slots.push({
             start_time: startTime.toISOString(),
             end_time: endTime.toISOString(),
-            day_of_week: dayOfWeek - 1 // Convert to 0-based (Monday = 0)
+            day_of_week: dayOfWeek === 0 ? 6 : dayOfWeek - 1 // Convert to 0-based (Monday = 0, Sunday = 6)
           });
         }
       }

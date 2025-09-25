@@ -25,20 +25,25 @@ export class ImportInitializationService {
     try {
       logger.info('Initializing import infrastructure...');
 
-      // Initialize Redis connection
-      logger.info('Connecting to Redis...');
-      await redisManager.connect();
-      logger.info('Redis connection established');
-
-      // Initialize import queue manager
-      logger.info('Initializing import queue manager...');
-      await importQueueManager.initialize();
-      logger.info('Import queue manager initialized');
-
-      // Initialize temporary storage
+      // Initialize temporary storage first (doesn't require Redis)
       logger.info('Initializing temporary storage...');
       await temporaryStorage.initialize();
       logger.info('Temporary storage initialized');
+
+      // Try to initialize Redis connection (optional for basic functionality)
+      try {
+        logger.info('Connecting to Redis...');
+        await redisManager.connect();
+        logger.info('Redis connection established');
+
+        // Initialize import queue manager (requires Redis)
+        logger.info('Initializing import queue manager...');
+        await importQueueManager.initialize();
+        logger.info('Import queue manager initialized');
+      } catch (redisError) {
+        logger.warn('Redis connection failed, continuing without queue functionality:', redisError);
+        // Continue without Redis - basic file upload will still work
+      }
 
       this.isInitialized = true;
       logger.info('Import infrastructure initialization completed successfully');

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Stepper,
@@ -8,7 +8,13 @@ import {
   Typography,
   Alert,
   Paper,
-  Container
+  Container,
+  Card,
+  CardContent,
+  Grid,
+  Chip,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   CloudUpload,
@@ -16,7 +22,9 @@ import {
   CheckCircle,
   Visibility,
   PlayArrow,
-  Done
+  Done,
+  Psychology as AIIcon,
+  AutoFixHigh as MagicIcon
 } from '@mui/icons-material';
 
 import { useImportStore } from '../../store/importStore';
@@ -24,6 +32,8 @@ import { FileUploadComponent } from './FileUploadComponent';
 import { ColumnMappingInterface } from './ColumnMappingInterface';
 import { DataPreviewInterface } from './DataPreviewInterface';
 import { ImportProgressMonitor } from './ImportProgressMonitor';
+import { LLMImportInterface } from './LLMImportInterface';
+import { importApi } from '../../services/importApi';
 
 const steps = [
   {
@@ -65,6 +75,7 @@ const steps = [
 ];
 
 export const ImportWorkflow: React.FC = () => {
+  const [showLLMImport, setShowLLMImport] = useState(false);
   const {
     currentStep,
     uploadedFile,
@@ -99,7 +110,8 @@ export const ImportWorkflow: React.FC = () => {
     nextStep,
     previousStep,
     resetWorkflow,
-    clearError
+    clearError,
+    clearUploadError
   } = useImportStore();
 
   const currentStepIndex = steps.findIndex(step => step.id === currentStep);
@@ -111,8 +123,26 @@ export const ImportWorkflow: React.FC = () => {
     }
   }, [currentStep, sourceColumns, columnMappings.length, generateAutoMappings]);
 
+  useEffect(() => {
+    // Clear errors when step changes (except when going to upload step)
+    if (currentStep !== 'upload') {
+      clearError();
+      clearUploadError();
+    }
+  }, [currentStep, clearError, clearUploadError]);
+
   const handleFileUpload = async (file: File) => {
-    await uploadFile(file);
+    // Clear any existing errors before upload
+    clearError();
+    clearUploadError();
+    
+    try {
+      await uploadFile(file);
+      console.log('ImportWorkflow: File upload completed successfully');
+    } catch (error) {
+      console.error('ImportWorkflow: File upload failed:', error);
+      // Error will be handled by the store
+    }
   };
 
   const handleFileRemove = (fileId: string) => {
@@ -173,13 +203,71 @@ export const ImportWorkflow: React.FC = () => {
     switch (currentStep) {
       case 'upload':
         return (
-          <FileUploadComponent
-            onFileUpload={handleFileUpload}
-            onFileRemove={handleFileRemove}
-            acceptedFormats={['.csv', '.xlsx', '.xls']}
-            maxSize={10 * 1024 * 1024} // 10MB
-            multiple={false}
-          />
+          <Box>
+            <FileUploadComponent
+              onFileUpload={handleFileUpload}
+              onFileRemove={handleFileRemove}
+              acceptedFormats={['.csv', '.xlsx', '.xls']}
+              maxSize={10 * 1024 * 1024} // 10MB
+              multiple={false}
+            />
+            
+            {/* AI Import Option */}
+            {uploadedFile && uploadedFile.id && (
+              <Card sx={{ mt: 3, border: '2px solid', borderColor: 'primary.main', bgcolor: 'primary.50' }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <AIIcon sx={{ mr: 2, color: 'primary.main' }} />
+                    <Typography variant="h6" color="primary">
+                      AI-Powered Smart Import
+                    </Typography>
+                    <Chip label="Recommended" color="primary" size="small" sx={{ ml: 2 }} />
+                  </Box>
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Let our AI analyze your data to automatically detect entities, preserve original names, 
+                    and create intelligent mappings. This saves time and ensures your data structure is preserved.
+                  </Typography>
+                  
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2">Preserves original names</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2">Intelligent entity detection</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2">Automatic column mapping</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2">Contextual understanding</Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                  
+                  <Button
+                    variant="contained"
+                    startIcon={<MagicIcon />}
+                    onClick={() => setShowLLMImport(true)}
+                    sx={{ mt: 1 }}
+                  >
+                    Use AI Import
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </Box>
         );
 
       case 'mapping':
@@ -298,7 +386,7 @@ export const ImportWorkflow: React.FC = () => {
         return (
           <DataPreviewInterface
             data={previewData}
-            columns={sourceColumns}
+            columns={sourceColumns || []}
             validationSummary={validationResult?.summary || {
               totalRows: 0,
               validRows: 0,
@@ -306,15 +394,15 @@ export const ImportWorkflow: React.FC = () => {
               warningRows: 0
             }}
             entityMatchSummary={{
-              totalMatches: previewData.reduce((sum, row) => sum + row.entityMatches.length, 0),
+              totalMatches: previewData.reduce((sum, row) => sum + (row.entityMatches?.length || 0), 0),
               highConfidenceMatches: previewData.reduce((sum, row) => 
-                sum + row.entityMatches.filter(match => match.confidence >= 80).length, 0
+                sum + (row.entityMatches?.filter(match => (match as any).confidence >= 80).length || 0), 0
               ),
               lowConfidenceMatches: previewData.reduce((sum, row) => 
-                sum + row.entityMatches.filter(match => match.confidence < 80 && match.confidence >= 50).length, 0
+                sum + (row.entityMatches?.filter(match => (match as any).confidence < 80 && (match as any).confidence >= 50).length || 0), 0
               ),
               noMatches: previewData.reduce((sum, row) => 
-                sum + row.entityMatches.filter(match => match.confidence < 50).length, 0
+                sum + (row.entityMatches?.filter(match => (match as any).confidence < 50).length || 0), 0
               )
             }}
             onEntityMatchApproval={approveEntityMatch}
@@ -447,7 +535,10 @@ export const ImportWorkflow: React.FC = () => {
           <Alert 
             severity="error" 
             sx={{ mb: 3 }}
-            onClose={clearError}
+            onClose={() => {
+              if (error) clearError();
+              if (uploadError) clearUploadError();
+            }}
           >
             {error || uploadError}
           </Alert>
@@ -471,7 +562,20 @@ export const ImportWorkflow: React.FC = () => {
 
         {/* Step Content */}
         <Paper sx={{ p: 3, mb: 3 }}>
-          {getStepContent()}
+          {showLLMImport && uploadedFile ? (
+            <LLMImportInterface
+              fileId={uploadedFile.id}
+              onComplete={(result) => {
+                console.log('LLM Import completed:', result);
+                setShowLLMImport(false);
+                // Navigate to completion or show results
+                goToStep('complete');
+              }}
+              onCancel={() => setShowLLMImport(false)}
+            />
+          ) : (
+            getStepContent()
+          )}
         </Paper>
 
         {/* Navigation Buttons */}

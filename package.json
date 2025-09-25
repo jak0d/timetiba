@@ -13,6 +13,9 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
+    "test:llm": "jest src/test/import/llmDataProcessingService.test.ts",
+    "test:llm:e2e": "playwright test e2e/llm-import.spec.ts",
+    "demo:llm-import": "ts-node src/scripts/testLLMImport.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "migrate": "ts-node src/scripts/migrate.ts up",
@@ -31,6 +34,7 @@
   "author": "AI Timetabler Team",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@types/axios": "^0.9.36",
     "@types/multer": "^2.0.0",
     "@types/pdfkit": "^0.17.3",

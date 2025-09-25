@@ -29,9 +29,12 @@ const DAYS: DayOfWeek[] = [
   DayOfWeek.WEDNESDAY,
   DayOfWeek.THURSDAY,
   DayOfWeek.FRIDAY,
+  DayOfWeek.SATURDAY,
+  DayOfWeek.SUNDAY,
 ];
 
 const TIME_SLOTS: TimeSlot[] = [
+  { time: '07:00', displayTime: '7:00 AM' },
   { time: '08:00', displayTime: '8:00 AM' },
   { time: '09:00', displayTime: '9:00 AM' },
   { time: '10:00', displayTime: '10:00 AM' },
@@ -42,6 +45,11 @@ const TIME_SLOTS: TimeSlot[] = [
   { time: '15:00', displayTime: '3:00 PM' },
   { time: '16:00', displayTime: '4:00 PM' },
   { time: '17:00', displayTime: '5:00 PM' },
+  { time: '18:00', displayTime: '6:00 PM' },
+  { time: '19:00', displayTime: '7:00 PM' },
+  { time: '20:00', displayTime: '8:00 PM' },
+  { time: '21:00', displayTime: '9:00 PM' },
+  { time: '22:00', displayTime: '10:00 PM' },
 ];
 
 export const TimetableGrid: React.FC<TimetableGridProps> = ({
@@ -156,7 +164,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
 
   return (
     <Paper elevation={2} sx={{ p: 2, overflow: 'auto' }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: '100px repeat(5, 1fr)', gap: 1, minWidth: 800 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '100px repeat(7, 1fr)', gap: 1, minWidth: 1000 }}>
         {/* Header row */}
         <Box />
         {DAYS.map(day => (

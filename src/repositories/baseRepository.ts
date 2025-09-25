@@ -18,7 +18,7 @@ export abstract class AbstractBaseRepository<T extends BaseEntity> implements Ba
   protected abstract getInsertFields(): string[];
   protected abstract getUpdateFields(): string[];
 
-  protected get db() {
+  public get db() {
     return getDatabase();
   }
 

@@ -103,16 +103,28 @@ export interface ImportTemplate {
 class ImportApiClient {
   // File Upload
   async uploadFile(file: File): Promise<FileUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await apiClient.post('/api/import/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-
-    return response.data;
+    console.log('API: Uploading file:', file.name, file.size);
+    try {
+      const response = await apiClient.uploadFile<FileUploadResponse>('/import/upload', file);
+      console.log('API: Upload response:', response);
+      
+      // Check if response has the expected structure
+      if (!response.data) {
+        console.error('API: Invalid response structure:', response);
+        throw new Error('Invalid response structure from server');
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('API: Upload error details:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        response: (error as any)?.response,
+        status: (error as any)?.status
+      });
+      throw error;
+    }
   }
 
   async getFileMetadata(fileId: string): Promise<FileUploadResponse> {
@@ -126,15 +138,15 @@ class ImportApiClient {
 
   // Column Mapping
   async getAutoMapping(fileId: string): Promise<ColumnMapping[]> {
-    const response = await apiClient.post(`/api/import/files/${fileId}/auto-map`);
-    return response.data.mappings;
+    const response = await apiClient.post(`/api/import/files/${fileId}/auto-map`, {});
+    return (response.data as any).mappings;
   }
 
   async validateMapping(fileId: string, mappings: ColumnMapping[]): Promise<ValidationResult> {
     const response = await apiClient.post(`/api/import/files/${fileId}/validate-mapping`, {
       mappings,
     });
-    return response.data;
+    return response.data as ValidationResult;
   }
 
   // Mapping Configuration Management
@@ -295,12 +307,12 @@ class ImportApiClient {
   }
 
   async cancelImportJob(jobId: string): Promise<void> {
-    await apiClient.post(`/api/import/jobs/${jobId}/cancel`);
+    await apiClient.post(`/api/import/jobs/${jobId}/cancel`, {});
   }
 
   async retryImportJob(jobId: string): Promise<ImportJob> {
-    const response = await apiClient.post(`/api/import/jobs/${jobId}/retry`);
-    return response.data;
+    const response = await apiClient.post(`/api/import/jobs/${jobId}/retry`, {});
+    return response.data as ImportJob;
   }
 
   async downloadImportReport(jobId: string, format: 'pdf' | 'csv' | 'excel' = 'pdf'): Promise<Blob> {
@@ -340,6 +352,148 @@ class ImportApiClient {
     }>;
   }> {
     const response = await apiClient.get('/api/import/documentation');
+    return response.data;
+  }
+
+  // LLM-Powered Import
+  async processWithLLM(fileId: string, options: {
+    preserveOriginalNames?: boolean;
+    createMissingEntities?: boolean;
+    confidenceThreshold?: number;
+    maxRetries?: number;
+    enableContextualMapping?: boolean;
+  } = {}): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      analysis: {
+        detectedEntities: {
+          venues: Array<{
+            originalName: string;
+            normalizedName: string;
+            attributes: Record<string, any>;
+            confidence: number;
+            sourceRows: number[];
+            suggestedFields: Record<string, any>;
+          }>;
+          lecturers: Array<{
+            originalName: string;
+            normalizedName: string;
+            attributes: Record<string, any>;
+            confidence: number;
+            sourceRows: number[];
+            suggestedFields: Record<string, any>;
+          }>;
+          courses: Array<{
+            originalName: string;
+            normalizedName: string;
+            attributes: Record<string, any>;
+            confidence: number;
+            sourceRows: number[];
+            suggestedFields: Record<string, any>;
+          }>;
+          studentGroups: Array<{
+            originalName: string;
+            normalizedName: string;
+            attributes: Record<string, any>;
+            confidence: number;
+            sourceRows: number[];
+            suggestedFields: Record<string, any>;
+          }>;
+          schedules: Array<{
+            course: string;
+            lecturer: string;
+            venue: string;
+            studentGroups: string[];
+            timeSlot: {
+              day: string;
+              startTime: string;
+              endTime: string;
+            };
+            originalRow: number;
+            confidence: number;
+          }>;
+        };
+        suggestedMappings: ColumnMapping[];
+        dataStructure: {
+          format: 'timetable' | 'entity_list' | 'mixed';
+          primaryEntityType: 'venue' | 'lecturer' | 'course' | 'studentGroup' | 'schedule';
+          relationships: Array<{
+            from: string;
+            to: string;
+            type: 'one_to_one' | 'one_to_many' | 'many_to_many';
+            confidence: number;
+          }>;
+          timeFormat: string;
+          dateFormat?: string;
+          namingConventions: Array<{
+            pattern: string;
+            entityType: string;
+            examples: string[];
+            confidence: number;
+          }>;
+        };
+        confidence: number;
+        recommendations: string[];
+      };
+      processingInfo: {
+        fileId: string;
+        originalFileName: string;
+        processedAt: string;
+        confidence: number;
+      };
+    };
+  }> {
+    const response = await apiClient.post(`/api/import/files/${fileId}/llm-process`, { options });
+    return response.data;
+  }
+
+  async createEntitiesFromLLM(analysisResult: any, options: {
+    preserveOriginalNames?: boolean;
+    createMissingEntities?: boolean;
+  } = {}): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      mappedData: {
+        venues: any[];
+        lecturers: any[];
+        courses: any[];
+        studentGroups: any[];
+        schedules: any[];
+        metadata: {
+          sourceFile: string;
+          mappingConfig: string;
+          importedAt: string;
+          importedBy: string;
+        };
+      };
+      summary: {
+        totalEntitiesCreated: number;
+        schedulesCreated: number;
+        createdAt: string;
+      };
+    };
+  }> {
+    const response = await apiClient.post('/api/import/llm-analysis/create-entities', {
+      analysisResult,
+      options
+    });
+    return response.data;
+  }
+
+  async getLLMStatus(): Promise<{
+    success: boolean;
+    data: {
+      available: boolean;
+      model: string;
+      capabilities: string[];
+      supportedFormats: string[];
+      maxFileSize: string;
+      processingTime: string;
+    };
+  }> {
+    const response = await apiClient.get('/api/import/llm/status');
     return response.data;
   }
 

@@ -41,15 +41,23 @@ export class FileMetadataService {
 
   public async extractMetadata(fileId: string): Promise<FileMetadata> {
     try {
+      logger.info(`Extracting metadata for file: ${fileId}`);
+      
       const storedFile = await temporaryStorage.getFile(fileId);
       if (!storedFile) {
+        logger.error(`File not found in storage: ${fileId}`);
         throw new Error(`File not found: ${fileId}`);
       }
 
+      logger.info(`File found in storage: ${storedFile.originalName}`);
+
       const fileBuffer = await temporaryStorage.getFileBuffer(fileId);
       if (!fileBuffer) {
+        logger.error(`Could not read file buffer: ${fileId}`);
         throw new Error(`Could not read file: ${fileId}`);
       }
+
+      logger.info(`File buffer read successfully: ${fileBuffer.length} bytes`);
 
       const fileExtension = this.getFileExtension(storedFile.originalName);
       const fileType = this.determineFileType(fileExtension, storedFile.mimeType);
@@ -86,6 +94,7 @@ export class FileMetadataService {
       const rows: any[] = [];
       let headers: string[] = [];
       let hasHeaders = true;
+      let totalRowCount = 0;
 
       const stream = Readable.from(fileBuffer.toString('utf8'));
       
@@ -97,6 +106,7 @@ export class FileMetadataService {
           hasHeaders = this.detectHeaders(headerList);
         })
         .on('data', (row: any) => {
+          totalRowCount++; // Count all rows
           if (rows.length < 10) { // Only collect first 10 rows for preview
             rows.push(row);
           }
@@ -117,7 +127,7 @@ export class FileMetadataService {
             size,
             detectedColumns,
             normalizedColumns,
-            rowCount: rows.length, // This is just preview count, not total
+            rowCount: totalRowCount, // Use actual total row count
             previewData,
             hasHeaders,
             encoding: 'utf8', // Could be enhanced to detect encoding
@@ -194,7 +204,7 @@ export class FileMetadataService {
         size,
         detectedColumns,
         normalizedColumns,
-        rowCount: Math.max(0, jsonData.length - dataStartIndex), // Approximate row count
+        rowCount: Math.max(0, jsonData.length - dataStartIndex), // Total row count excluding headers
         previewData,
         hasHeaders,
         sheetNames,
