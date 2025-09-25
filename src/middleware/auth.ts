@@ -112,3 +112,13 @@ export class AuthMiddleware {
     }
   };
 }
+
+// Create and export default instance
+import { authService } from '../services/authService';
+
+const authMiddlewareInstance = new AuthMiddleware(authService);
+
+export const authMiddleware = authMiddlewareInstance.authenticate;
+export const requireRole = authMiddlewareInstance.requireRole;
+export const requireTenant = authMiddlewareInstance.requireTenant;
+export const optionalAuth = authMiddlewareInstance.optional;

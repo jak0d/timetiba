@@ -26,7 +26,6 @@ export const performanceMiddleware = (req: Request, res: Response, next: NextFun
   req.startTime = Date.now();
   
   // Override res.end to capture response time
-  const originalEnd = res.end;
   const originalEnd = res.end.bind(res);
   res.end = function(chunk?: any, encoding?: any) {
     const duration = Date.now() - req.startTime;

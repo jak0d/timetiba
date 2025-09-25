@@ -1,0 +1,6 @@
+Venue,Capacity,Instructor,Email,Course,Course Title,Group,Weekday,Start,End
+Main Hall,200,John Smith,j.smith@uni.edu,CS-101,Intro to CS,First Years,Mon,9:00 AM,10:30 AM
+Computer Lab,30,Sarah Johnson,s.johnson@uni.edu,CS-102,Programming,First Years,Tue,2:00 PM,4:00 PM
+Theatre 1,150,Mike Brown,m.brown@uni.edu,MATH-201,Calculus,Second Years,Wed,11:00 AM,12:30 PM
+Lab Room B,25,Emily Davis,e.davis@uni.edu,CS-201,Data Structures,Second Years,Thu,10:00 AM,12:00 PM
+Main Auditorium,200,Bob Wilson,b.wilson@uni.edu,PHYS-101,Physics,First Years,Fri,1:00 PM,2:30 PM

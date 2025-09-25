@@ -1,0 +1,11 @@
+Venue Name,Venue Capacity,Lecturer Name,Lecturer Email,Course Code,Course Name,Student Group,Day,Start Time,End Time
+Main Hall,200,Dr. John Smith,john.smith@university.edu,CS101,Introduction to Computer Science,CS Year 1,Monday,09:00,10:30
+Lab A,30,Prof. Sarah Johnson,sarah.johnson@university.edu,CS102,Programming Fundamentals,CS Year 1,Tuesday,14:00,16:00
+Lecture Theatre 1,150,Dr. Michael Brown,michael.brown@university.edu,MATH201,Calculus II,MATH Year 2,Wednesday,11:00,12:30
+Lab B,25,Dr. Emily Davis,emily.davis@university.edu,CS201,Data Structures,CS Year 2,Thursday,10:00,12:00
+Main Hall,200,Prof. Robert Wilson,robert.wilson@university.edu,PHYS101,Physics I,PHYS Year 1,Friday,13:00,14:30
+Seminar Room 1,40,Dr. Lisa Anderson,lisa.anderson@university.edu,ENG101,English Literature,ENG Year 1,Monday,15:00,16:30
+Lab C,35,Dr. David Martinez,david.martinez@university.edu,CHEM101,General Chemistry,CHEM Year 1,Tuesday,09:00,11:00
+Lecture Theatre 2,120,Prof. Jennifer Taylor,jennifer.taylor@university.edu,BIO101,Biology I,BIO Year 1,Wednesday,14:00,15:30
+Computer Lab 1,40,Dr. James Thompson,james.thompson@university.edu,CS103,Web Development,CS Year 1,Thursday,16:00,18:00
+Main Hall,200,Dr. Mary Garcia,mary.garcia@university.edu,HIST101,World History,HIST Year 1,Friday,10:00,11:30

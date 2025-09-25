@@ -1,4 +1,5 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios from 'axios';
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { ApiResponse, ErrorResponse, PaginatedResponse, RequestOptions, ApiClientConfig } from '../types/api';
 
 class ApiClient {
@@ -147,3 +148,4 @@ const apiClient = new ApiClient({
 
 export default apiClient;
 export { ApiClient };
+export { apiClient };

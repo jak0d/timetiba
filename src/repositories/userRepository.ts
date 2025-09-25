@@ -112,3 +112,6 @@ export class UserRepository extends AbstractBaseRepository<User> {
     return result.rows.map(row => this.mapRowToEntity(row));
   }
 }
+
+// Create and export default instance
+export const userRepository = new UserRepository();

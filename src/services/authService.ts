@@ -216,3 +216,16 @@ export class AuthService {
     }
   }
 }
+
+// Create and export default instance
+import { userRepository } from '../repositories/userRepository';
+import { authConfig } from '../utils/authConfig';
+
+export const authService = new AuthService(userRepository, authConfig, { 
+  maxLoginAttempts: 5,
+  lockoutDuration: 15,
+  passwordMinLength: 8,
+  passwordRequireSpecialChar: true,
+  passwordRequireNumber: true,
+  passwordRequireUppercase: true
+});

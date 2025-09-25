@@ -2,8 +2,29 @@ import { logger } from '../utils/logger';
 import { EmailService } from './emailService';
 import { SMSService } from './smsService';
 
-const emailService = new EmailService();
-const smsService = new SMSService();
+// Initialize services with default configurations
+const emailService = new EmailService({
+  provider: 'smtp',
+  smtp: {
+    host: process.env['SMTP_HOST'] || 'localhost',
+    port: parseInt(process.env['SMTP_PORT'] || '587'),
+    secure: process.env['SMTP_SECURE'] === 'true',
+    auth: {
+      user: process.env['SMTP_USER'] || '',
+      pass: process.env['SMTP_PASS'] || ''
+    }
+  },
+  from: process.env['EMAIL_FROM'] || 'noreply@timetabler.com'
+});
+
+const smsService = new SMSService({
+  provider: 'twilio',
+  config: {
+    accountSid: process.env['TWILIO_ACCOUNT_SID'] || '',
+    authToken: process.env['TWILIO_AUTH_TOKEN'] || '',
+    fromNumber: process.env['TWILIO_FROM_NUMBER'] || ''
+  }
+});
 
 export interface Alert {
   id: string;
@@ -60,7 +81,7 @@ class AlertingService {
 
   constructor() {
     this.setupDefaultRules();
-    this.webhookUrl = process.env['ALERT_WEBHOOK_URL'];
+    this.webhookUrl = process.env['ALERT_WEBHOOK_URL'] || undefined;
   }
 
   private setupDefaultRules() {
@@ -207,7 +228,7 @@ class AlertingService {
       await emailService.sendEmail({
         to: recipient.trim(),
         subject,
-        html
+        body: html
       });
     }
   }
@@ -219,7 +240,10 @@ class AlertingService {
     const message = `[${alert.severity.toUpperCase()}] ${alert.title}: ${alert.message}`;
 
     for (const recipient of recipients) {
-      await smsService.sendSMS(recipient.trim(), message);
+      await smsService.sendSMS({
+        to: recipient.trim(),
+        body: message
+      });
     }
   }
 

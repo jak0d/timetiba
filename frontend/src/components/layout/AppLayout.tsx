@@ -23,6 +23,7 @@ import {
   Group as GroupIcon,
   Schedule as ScheduleIcon,
   Settings as SettingsIcon,
+  Upload as UploadIcon,
 } from '@mui/icons-material';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -42,6 +43,7 @@ const navigationItems = [
   { text: 'Courses', icon: <SchoolIcon />, path: '/courses' },
   { text: 'Student Groups', icon: <GroupIcon />, path: '/student-groups' },
   { text: 'Timetables', icon: <ScheduleIcon />, path: '/timetables' },
+  { text: 'Import Data', icon: <UploadIcon />, path: '/import' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
