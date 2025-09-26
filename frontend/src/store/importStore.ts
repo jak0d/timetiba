@@ -16,6 +16,8 @@ interface ImportFile {
 interface ImportWorkflowState {
   // Current workflow state
   currentStep: 'upload' | 'mapping' | 'validation' | 'preview' | 'import' | 'complete';
+  currentStage: string;
+  progress: number;
   
   // File management
   uploadedFile: ImportFile | null;
@@ -105,10 +107,14 @@ interface ImportWorkflowActions {
   setError: (error: string | null) => void;
   clearError: () => void;
   clearUploadError: () => void;
+  setProgress: (progress: number) => void;
+  setCurrentStage: (stage: string) => void;
 }
 
 const initialState: ImportWorkflowState = {
   currentStep: 'upload',
+  currentStage: '',
+  progress: 0,
   uploadedFile: null,
   isUploading: false,
   uploadError: null,
@@ -406,13 +412,17 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
         const { currentJob } = get();
         if (!currentJob) return () => {};
 
-        return importApi.subscribeToImportProgress(currentJob.id, (job) => {
+        const unsubscribe = importApi.subscribeToImportProgress(currentJob.id, (job) => {
           set({ currentJob: job });
           
           if (job.status === 'completed') {
             set({ currentStep: 'complete' });
+          } else if (job.status === 'failed' || job.status === 'cancelled') {
+            set({ isImporting: false });
           }
         });
+
+        return unsubscribe;
       },
 
       // Navigation actions
@@ -457,6 +467,14 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
 
       clearUploadError: () => {
         set({ uploadError: null });
+      },
+
+      setProgress: (progress: number) => {
+        set({ progress });
+      },
+
+      setCurrentStage: (currentStage: string) => {
+        set({ currentStage });
       },
     }),
     {

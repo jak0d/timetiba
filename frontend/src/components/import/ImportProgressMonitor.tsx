@@ -91,9 +91,9 @@ interface ImportProgressProps {
 
 export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
   jobId,
-  stages,
+  stages = [],
   currentStage,
-  overallProgress,
+  overallProgress = 0,
   status,
   result,
   onCancel,
@@ -141,8 +141,11 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
   const getStatusColor = (stageStatus: string) => {
     switch (stageStatus) {
       case 'completed': return 'success';
-      case 'error': return 'error';
-      case 'running': return 'primary';
+      case 'error':
+      case 'failed': return 'error';
+      case 'running':
+      case 'processing': return 'primary';
+      case 'cancelled': return 'warning';
       default: return 'default';
     }
   };
@@ -202,15 +205,15 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
           
           <LinearProgress
             variant="determinate"
-            value={overallProgress}
+            value={Math.min(100, Math.max(0, overallProgress))}
             sx={{ height: 8, borderRadius: 4, mb: 2 }}
           />
           
           <Box display="flex" justifyContent="space-between" alignItems="center">
             <Typography variant="body2" color="text.secondary">
-              {overallProgress}% Complete
+              {Math.round(overallProgress)}% Complete
             </Typography>
-            {estimatedTimeRemaining && status === 'running' && (
+            {estimatedTimeRemaining && status === 'running' && estimatedTimeRemaining > 0 && (
               <Typography variant="body2" color="text.secondary">
                 Est. {formatDuration(estimatedTimeRemaining)} remaining
               </Typography>
@@ -226,33 +229,40 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
             Import Stages
           </Typography>
           
-          <Stepper activeStep={currentStage} orientation="vertical">
+          {stages.length === 0 ? (
+            <Box textAlign="center" py={4}>
+              <Typography variant="body2" color="text.secondary">
+                Loading import stages...
+              </Typography>
+            </Box>
+          ) : (
+            <Stepper activeStep={Math.max(0, currentStage)} orientation="vertical">
             {stages.map((stage, index) => (
-              <Step key={stage.id}>
+              <Step key={stage.id || `stage-${index}`}>
                 <StepLabel
                   icon={getStatusIcon(stage.status)}
                   error={stage.status === 'error'}
                 >
                   <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
                     <Typography variant="subtitle1">
-                      {stage.name}
+                      {stage.name || `Stage ${index + 1}`}
                     </Typography>
                     {stage.status === 'running' && (
                       <Typography variant="body2" color="text.secondary">
-                        {stage.progress}%
+                        {Math.round(stage.progress || 0)}%
                       </Typography>
                     )}
                   </Box>
                 </StepLabel>
                 <StepContent>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
-                    {stage.description}
+                    {stage.description || `Processing ${stage.name || 'stage'}...`}
                   </Typography>
                   
                   {stage.status === 'running' && (
                     <LinearProgress
                       variant="determinate"
-                      value={stage.progress}
+                      value={Math.min(100, Math.max(0, stage.progress || 0))}
                       sx={{ mb: 2 }}
                     />
                   )}
@@ -264,7 +274,7 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
                         onClick={() => toggleSection(`stage-${index}`)}
                         endIcon={expandedSections.has(`stage-${index}`) ? <ExpandLess /> : <ExpandMore />}
                       >
-                        Details
+                        Details ({stage.details.length})
                       </Button>
                       <Collapse in={expandedSections.has(`stage-${index}`)}>
                         <List dense>
@@ -281,12 +291,15 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
                   {stage.errors && stage.errors.length > 0 && (
                     <Alert severity="error" sx={{ mt: 1 }}>
                       <Typography variant="subtitle2" gutterBottom>
-                        Errors in this stage:
+                        Errors in this stage ({stage.errors.length}):
                       </Typography>
                       <ul style={{ margin: 0, paddingLeft: 20 }}>
-                        {stage.errors.map((error, errorIndex) => (
+                        {stage.errors.slice(0, 3).map((error, errorIndex) => (
                           <li key={errorIndex}>{error}</li>
                         ))}
+                        {stage.errors.length > 3 && (
+                          <li>... and {stage.errors.length - 3} more errors</li>
+                        )}
                       </ul>
                     </Alert>
                   )}
@@ -303,11 +316,12 @@ export const ImportProgressMonitor: React.FC<ImportProgressProps> = ({
               </Step>
             ))}
           </Stepper>
+          )}
         </CardContent>
       </Card>
 
       {/* Results Summary */}
-      {result && (
+      {result && (status === 'completed' || status === 'error') && (
         <Card>
           <CardContent>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>

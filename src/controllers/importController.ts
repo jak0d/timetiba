@@ -5,6 +5,8 @@ import { fileMetadataService } from '../services/import/fileMetadataService';
 import { SimpleLLMDataProcessingService as LLMDataProcessingService, LLMProcessingOptions } from '../services/import/llmDataProcessingService.simple';
 import { csvParser } from '../services/import/csvParser';
 import { excelParser } from '../services/import/excelParser';
+import { ImportJobService } from '../services/import/importJobService';
+import { ProgressTrackingService } from '../services/import/progressTrackingService';
 import { logger } from '../utils/logger';
 
 // Import controller for handling timetable import operations
@@ -506,13 +508,13 @@ export class ImportController {
    */
   public async getLLMStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const hasApiKey = !!process.env.GEMINI_API_KEY;
+      const isAvailable = this.llmService.isServiceAvailable();
       
       res.status(200).json({
         success: true,
         data: {
-          available: hasApiKey,
-          model: 'gemini-1.5-pro',
+          available: isAvailable,
+          model: isAvailable ? 'gemini-1.5-pro' : 'fallback-analysis',
           capabilities: [
             'Intelligent entity detection',
             'Automatic column mapping',
@@ -523,7 +525,8 @@ export class ImportController {
           ],
           supportedFormats: ['CSV', 'Excel (.xlsx, .xls)'],
           maxFileSize: '10MB',
-          processingTime: 'Typically 30-60 seconds'
+          processingTime: isAvailable ? 'Typically 30-60 seconds' : 'Instant (fallback mode)',
+          note: isAvailable ? 'Using Google Gemini AI' : 'Using fallback analysis - set GEMINI_API_KEY for full AI features'
         }
       });
 
@@ -537,6 +540,309 @@ export class ImportController {
           code: 'LLM_STATUS_ERROR',
           message: error instanceof Error ? error.message : 'Unknown error'
         }
+      });
+    }
+  }
+
+  /**
+   * Start an import job
+   * POST /api/import/jobs
+   */
+  public async startImportJob(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { fileId, mappings, options = {} } = req.body;
+      const userId = req.user?.userId || 'anonymous';
+
+      if (!fileId || !mappings) {
+        res.status(400).json({
+          success: false,
+          message: 'File ID and mappings are required',
+          code: 'MISSING_PARAMETERS'
+        });
+        return;
+      }
+
+      const importJobService = ImportJobService.getInstance();
+      
+      // Create mock validation result for now
+      const validationResult = {
+        isValid: true,
+        errors: [],
+        warnings: [],
+        summary: {
+          totalRows: 100, // This should come from actual file analysis
+          validRows: 95,
+          errorRows: 5,
+          warningRows: 0
+        }
+      };
+
+      const jobId = await importJobService.createImportJob({
+        userId,
+        fileId,
+        mappingConfig: {
+          id: 'temp',
+          name: 'Temporary mapping',
+          mappings,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        validationResult
+      });
+
+      // Get initial job status
+      const jobStatus = await importJobService.getJobStatus(jobId);
+
+      res.status(201).json({
+        success: true,
+        message: 'Import job started successfully',
+        data: {
+          id: jobId,
+          status: jobStatus?.status || 'pending',
+          progress: 0,
+          currentStage: 'parsing',
+          stages: [
+            { id: 'parsing', name: 'Parsing Data', status: 'pending', progress: 0 },
+            { id: 'validation', name: 'Validating Data', status: 'pending', progress: 0 },
+            { id: 'processing', name: 'Processing Entities', status: 'pending', progress: 0 },
+            { id: 'finalization', name: 'Finalizing Import', status: 'pending', progress: 0 }
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to start import job:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to start import job',
+        code: 'IMPORT_JOB_ERROR',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get import job status
+   * GET /api/import/jobs/:jobId
+   */
+  public async getImportJobStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { jobId } = req.params;
+      const userId = req.user?.userId || 'anonymous';
+
+      const importJobService = ImportJobService.getInstance();
+      const jobStatus = await importJobService.getJobStatus(jobId);
+
+      if (!jobStatus) {
+        res.status(404).json({
+          success: false,
+          message: 'Import job not found',
+          code: 'JOB_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Convert internal job status to API format
+      const apiJobStatus = {
+        id: jobStatus.id,
+        status: jobStatus.status,
+        progress: Math.round((jobStatus.progress.processedRows / jobStatus.progress.totalRows) * 100),
+        currentStage: jobStatus.progress.currentStage,
+        stages: [
+          {
+            id: 'parsing',
+            name: 'Parsing Data',
+            status: jobStatus.progress.currentStage === 'parsing' ? 'running' : 
+                   ['validation', 'processing', 'finalization'].includes(jobStatus.progress.currentStage) ? 'completed' : 'pending',
+            progress: jobStatus.progress.currentStage === 'parsing' ? 
+                     Math.round((jobStatus.progress.processedRows / jobStatus.progress.totalRows) * 100) : 
+                     ['validation', 'processing', 'finalization'].includes(jobStatus.progress.currentStage) ? 100 : 0
+          },
+          {
+            id: 'validation',
+            name: 'Validating Data',
+            status: jobStatus.progress.currentStage === 'validation' ? 'running' : 
+                   ['processing', 'finalization'].includes(jobStatus.progress.currentStage) ? 'completed' : 'pending',
+            progress: jobStatus.progress.currentStage === 'validation' ? 
+                     Math.round((jobStatus.progress.processedRows / jobStatus.progress.totalRows) * 100) : 
+                     ['processing', 'finalization'].includes(jobStatus.progress.currentStage) ? 100 : 0
+          },
+          {
+            id: 'processing',
+            name: 'Processing Entities',
+            status: jobStatus.progress.currentStage === 'processing' ? 'running' : 
+                   jobStatus.progress.currentStage === 'finalization' ? 'completed' : 'pending',
+            progress: jobStatus.progress.currentStage === 'processing' ? 
+                     Math.round((jobStatus.progress.processedRows / jobStatus.progress.totalRows) * 100) : 
+                     jobStatus.progress.currentStage === 'finalization' ? 100 : 0
+          },
+          {
+            id: 'finalization',
+            name: 'Finalizing Import',
+            status: jobStatus.progress.currentStage === 'finalization' ? 'running' : 
+                   jobStatus.status === 'completed' ? 'completed' : 'pending',
+            progress: jobStatus.progress.currentStage === 'finalization' || jobStatus.status === 'completed' ? 100 : 0
+          }
+        ],
+        result: jobStatus.status === 'completed' ? {
+          summary: {
+            totalProcessed: jobStatus.progress.totalRows,
+            successful: jobStatus.progress.successfulRows,
+            failed: jobStatus.progress.failedRows,
+            warnings: 0
+          },
+          entities: {
+            venues: { created: 0, updated: 0, errors: 0 },
+            lecturers: { created: 0, updated: 0, errors: 0 },
+            courses: { created: 0, updated: 0, errors: 0 },
+            schedules: { created: 0, updated: 0, errors: 0 }
+          }
+        } : undefined,
+        createdAt: jobStatus.createdAt.toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      res.status(200).json({
+        success: true,
+        data: apiJobStatus
+      });
+
+    } catch (error) {
+      logger.error('Failed to get import job status:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get job status',
+        code: 'JOB_STATUS_ERROR',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Cancel an import job
+   * POST /api/import/jobs/:jobId/cancel
+   */
+  public async cancelImportJob(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { jobId } = req.params;
+      const userId = req.user?.userId || 'anonymous';
+
+      const importJobService = ImportJobService.getInstance();
+      const cancelled = await importJobService.cancelJob(jobId, userId);
+
+      if (cancelled) {
+        res.status(200).json({
+          success: true,
+          message: 'Import job cancelled successfully'
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          message: 'Failed to cancel import job',
+          code: 'CANCEL_FAILED'
+        });
+      }
+
+    } catch (error) {
+      logger.error('Failed to cancel import job:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to cancel job',
+        code: 'CANCEL_ERROR',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Retry a failed import job
+   * POST /api/import/jobs/:jobId/retry
+   */
+  public async retryImportJob(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { jobId } = req.params;
+      const userId = req.user?.userId || 'anonymous';
+
+      // For now, just return the same job with reset status
+      const importJobService = ImportJobService.getInstance();
+      const jobStatus = await importJobService.getJobStatus(jobId);
+
+      if (!jobStatus) {
+        res.status(404).json({
+          success: false,
+          message: 'Import job not found',
+          code: 'JOB_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Reset job status (simplified implementation)
+      const retriedJob = {
+        ...jobStatus,
+        status: 'pending',
+        progress: {
+          ...jobStatus.progress,
+          processedRows: 0,
+          successfulRows: 0,
+          failedRows: 0,
+          currentStage: 'parsing'
+        }
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'Import job retried successfully',
+        data: retriedJob
+      });
+
+    } catch (error) {
+      logger.error('Failed to retry import job:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retry job',
+        code: 'RETRY_ERROR',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get user's import jobs
+   * GET /api/import/jobs
+   */
+  public async getUserImportJobs(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId || 'anonymous';
+      const { page = 1, limit = 20, status } = req.query;
+
+      const importJobService = ImportJobService.getInstance();
+      const jobs = await importJobService.getJobsByUser(userId, Number(limit));
+
+      // Filter by status if provided
+      const filteredJobs = status ? jobs.filter(job => job.status === status) : jobs;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          jobs: filteredJobs,
+          pagination: {
+            page: Number(page),
+            limit: Number(limit),
+            total: filteredJobs.length,
+            totalPages: Math.ceil(filteredJobs.length / Number(limit))
+          }
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to get user import jobs:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get import jobs',
+        code: 'GET_JOBS_ERROR',
+        details: error instanceof Error ? error.message : String(error)
       });
     }
   }

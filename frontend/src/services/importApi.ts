@@ -62,7 +62,7 @@ export interface EntityMatch {
 
 export interface ImportJob {
   id: string;
-  status: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   currentStage: string;
   stages: Array<{
@@ -501,17 +501,28 @@ class ImportApiClient {
   subscribeToImportProgress(jobId: string, callback: (job: ImportJob) => void): () => void {
     // This would typically use WebSocket or Server-Sent Events
     // For now, we'll use polling as a fallback
+    let retryCount = 0;
+    const maxRetries = 5;
+    
     const interval = setInterval(async () => {
       try {
         const job = await this.getImportJob(jobId);
         callback(job);
+        retryCount = 0; // Reset retry count on success
         
         // Stop polling if job is completed
-        if (['completed', 'error', 'cancelled'].includes(job.status)) {
+        if (['completed', 'failed', 'cancelled'].includes(job.status)) {
           clearInterval(interval);
         }
       } catch (error) {
         console.error('Error polling import job:', error);
+        retryCount++;
+        
+        // Stop polling after max retries to prevent infinite errors
+        if (retryCount >= maxRetries) {
+          console.error(`Max retries (${maxRetries}) reached for job ${jobId}, stopping progress updates`);
+          clearInterval(interval);
+        }
       }
     }, 2000);
 

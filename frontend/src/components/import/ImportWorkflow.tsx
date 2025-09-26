@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box,
-  Stepper,
-  Step,
-  StepLabel,
   Button,
   Typography,
   Alert,
@@ -13,8 +10,12 @@ import {
   CardContent,
   Grid,
   Chip,
-  Switch,
-  FormControlLabel
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Fade,
+  Slide
 } from '@mui/material';
 import {
   CloudUpload,
@@ -24,7 +25,8 @@ import {
   PlayArrow,
   Done,
   Psychology as AIIcon,
-  AutoFixHigh as MagicIcon
+  AutoFixHigh as MagicIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 
 import { useImportStore } from '../../store/importStore';
@@ -33,49 +35,126 @@ import { ColumnMappingInterface } from './ColumnMappingInterface';
 import { DataPreviewInterface } from './DataPreviewInterface';
 import { ImportProgressMonitor } from './ImportProgressMonitor';
 import { LLMImportInterface } from './LLMImportInterface';
+import { FileAnalysisDisplay } from './FileAnalysisDisplay';
+import { FileManager } from './FileManager';
+import { ImportNavigation } from './ImportNavigation';
+import { ImportWorkflowDebug } from './ImportWorkflowDebug';
 import { importApi } from '../../services/importApi';
 
-const steps = [
+// Helper function to calculate estimated time remaining
+const calculateEstimatedTime = (job: any): number | undefined => {
+  if (!job || job.status !== 'running' || !job.stages) {
+    return undefined;
+  }
+
+  const completedStages = job.stages.filter((s: any) => s.status === 'completed');
+  const currentStage = job.stages.find((s: any) => s.status === 'running');
+  
+  if (!currentStage || completedStages.length === 0) {
+    return undefined;
+  }
+
+  // Calculate average time per completed stage
+  const totalCompletedTime = completedStages.reduce((total: number, stage: any) => {
+    if (stage.startTime && stage.endTime) {
+      return total + (new Date(stage.endTime).getTime() - new Date(stage.startTime).getTime());
+    }
+    return total;
+  }, 0);
+
+  if (totalCompletedTime === 0) {
+    return undefined;
+  }
+
+  const avgTimePerStage = totalCompletedTime / completedStages.length;
+  const remainingStages = job.stages.filter((s: any) => s.status === 'pending').length;
+  
+  // Estimate remaining time for current stage
+  const currentStageProgress = currentStage.progress || 0;
+  const currentStageRemaining = currentStageProgress > 0 
+    ? (avgTimePerStage * (100 - currentStageProgress)) / 100 
+    : avgTimePerStage;
+
+  return currentStageRemaining + (remainingStages * avgTimePerStage);
+};
+
+// Define workflow steps with enhanced metadata
+const getWorkflowSteps = (hasAIOption: boolean) => [
   {
     id: 'upload',
-    label: 'Upload File',
+    label: 'Upload Files',
     icon: <CloudUpload />,
-    description: 'Upload your CSV or Excel file'
+    description: 'Upload and manage your data files',
+    status: 'pending' as const,
+    estimatedTime: '1-2 min'
   },
   {
+    id: 'analysis',
+    label: 'File Analysis',
+    icon: <CheckCircle />,
+    description: 'Analyze file structure and content',
+    status: 'pending' as const,
+    estimatedTime: '30 sec'
+  },
+  ...(hasAIOption ? [{
+    id: 'ai-processing',
+    label: 'AI Processing',
+    icon: <AIIcon />,
+    description: 'AI-powered entity detection and mapping',
+    status: 'pending' as const,
+    optional: true,
+    estimatedTime: '2-3 min'
+  }] : []),
+  {
     id: 'mapping',
-    label: 'Map Columns',
+    label: 'Column Mapping',
     icon: <TableChart />,
-    description: 'Map your columns to system fields'
+    description: 'Map columns to system fields',
+    status: 'pending' as const,
+    optional: hasAIOption,
+    estimatedTime: '5-10 min'
   },
   {
     id: 'validation',
-    label: 'Validate Data',
+    label: 'Data Validation',
     icon: <CheckCircle />,
-    description: 'Review data validation results'
+    description: 'Validate data quality and integrity',
+    status: 'pending' as const,
+    estimatedTime: '1-2 min'
   },
   {
     id: 'preview',
     label: 'Preview & Review',
     icon: <Visibility />,
-    description: 'Preview data and resolve entity matches'
+    description: 'Review data before final import',
+    status: 'pending' as const,
+    estimatedTime: '2-5 min'
   },
   {
     id: 'import',
-    label: 'Import',
+    label: 'Import Execution',
     icon: <PlayArrow />,
-    description: 'Execute the import process'
+    description: 'Execute the data import process',
+    status: 'pending' as const,
+    estimatedTime: '3-10 min'
   },
   {
     id: 'complete',
     label: 'Complete',
     icon: <Done />,
-    description: 'Import completed successfully'
+    description: 'Import completed successfully',
+    status: 'pending' as const,
+    estimatedTime: '1 min'
   }
 ];
 
 export const ImportWorkflow: React.FC = () => {
   const [showLLMImport, setShowLLMImport] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [managedFiles, setManagedFiles] = useState<any[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [workflowSteps, setWorkflowSteps] = useState(getWorkflowSteps(false));
+  
   const {
     currentStep,
     uploadedFile,
@@ -114,7 +193,69 @@ export const ImportWorkflow: React.FC = () => {
     clearUploadError
   } = useImportStore();
 
-  const currentStepIndex = steps.findIndex(step => step.id === currentStep);
+  const currentStepIndex = workflowSteps.findIndex(step => step.id === currentStep);
+  
+  // Safety check to prevent errors if step is not found
+  const safeCurrentStepIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
+
+  // Handle progress subscription cleanup
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    
+    if (currentJob && currentJob.status === 'running') {
+      const { subscribeToProgress } = useImportStore.getState();
+      unsubscribe = subscribeToProgress();
+    }
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [currentJob?.id, currentJob?.status]);
+
+  // Update workflow steps based on current state
+  useEffect(() => {
+    const hasAI = uploadedFile && uploadedFile.id;
+    const newSteps = getWorkflowSteps(!!hasAI);
+    const stepIndex = newSteps.findIndex(step => step.id === currentStep);
+    
+    // Update step statuses based on current progress
+    const updatedSteps = newSteps.map((step, index) => {
+      if (index < stepIndex) {
+        return { ...step, status: 'completed' as const };
+      } else if (index === stepIndex) {
+        return { ...step, status: 'active' as const };
+      } else {
+        return { ...step, status: 'pending' as const };
+      }
+    });
+    
+    setWorkflowSteps(updatedSteps);
+  }, [currentStep, uploadedFile]);
+
+  // Convert uploaded file to managed file format
+  useEffect(() => {
+    if (uploadedFile && !managedFiles.find(f => f.id === uploadedFile.id)) {
+      const managedFile = {
+        id: uploadedFile.id,
+        filename: uploadedFile.filename,
+        size: uploadedFile.size,
+        status: 'ready' as const,
+        progress: 100,
+        uploadedAt: new Date(),
+        metadata: uploadedFile.metadata ? {
+          rows: uploadedFile.metadata.rows,
+          columns: uploadedFile.metadata.columns,
+          preview: uploadedFile.metadata.preview,
+          fileType: uploadedFile.filename.split('.').pop()?.toUpperCase() || 'Unknown'
+        } : undefined
+      };
+      
+      setManagedFiles(prev => [...prev.filter(f => f.id !== uploadedFile.id), managedFile]);
+      setSelectedFileId(uploadedFile.id);
+    }
+  }, [uploadedFile, managedFiles]);
 
   useEffect(() => {
     // Auto-generate mappings when file is uploaded
@@ -136,17 +277,96 @@ export const ImportWorkflow: React.FC = () => {
     clearError();
     clearUploadError();
     
+    // Add file to managed files with uploading status
+    const fileId = `${file.name}-${Date.now()}`;
+    const newManagedFile = {
+      id: fileId,
+      filename: file.name,
+      size: file.size,
+      status: 'uploading' as const,
+      progress: 0,
+      uploadedAt: new Date()
+    };
+    
+    setManagedFiles(prev => [...prev, newManagedFile]);
+    
     try {
+      // Update progress during upload
+      setManagedFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, progress: 50 } : f
+      ));
+      
       await uploadFile(file);
+      
+      // Update to analyzing status
+      setManagedFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, status: 'analyzing', progress: 75 } : f
+      ));
+      
       console.log('ImportWorkflow: File upload completed successfully');
     } catch (error) {
       console.error('ImportWorkflow: File upload failed:', error);
-      // Error will be handled by the store
+      
+      // Update file status to error
+      setManagedFiles(prev => prev.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          status: 'error', 
+          progress: 0, 
+          error: error instanceof Error ? error.message : 'Upload failed' 
+        } : f
+      ));
     }
   };
 
-  const handleFileRemove = (fileId: string) => {
-    removeFile();
+  const handleFileDelete = (fileId: string) => {
+    setManagedFiles(prev => prev.filter(f => f.id !== fileId));
+    
+    // If this was the selected file, clear selection and reset workflow
+    if (selectedFileId === fileId) {
+      setSelectedFileId(null);
+      removeFile();
+      goToStep('upload');
+    }
+  };
+
+  const handleFileReplace = async (fileId: string, newFile: File) => {
+    try {
+      // Update file status to uploading
+      setManagedFiles(prev => prev.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          filename: newFile.name,
+          size: newFile.size,
+          status: 'uploading',
+          progress: 0,
+          uploadedAt: new Date()
+        } : f
+      ));
+      
+      await uploadFile(newFile);
+      console.log('File replaced successfully');
+    } catch (error) {
+      console.error('File replacement failed:', error);
+      setManagedFiles(prev => prev.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          status: 'error', 
+          error: error instanceof Error ? error.message : 'Replacement failed' 
+        } : f
+      ));
+    }
+  };
+
+  const handleFileSelect = (fileId: string) => {
+    setSelectedFileId(fileId);
+    const selectedFile = managedFiles.find(f => f.id === fileId);
+    if (selectedFile && selectedFile.status === 'ready') {
+      // If file is ready, we can proceed to next step
+      if (currentStep === 'upload') {
+        goToStep('analysis');
+      }
+    }
   };
 
   const handleMappingChange = (mappings: any[]) => {
@@ -185,7 +405,11 @@ export const ImportWorkflow: React.FC = () => {
   const canProceedToNext = () => {
     switch (currentStep) {
       case 'upload':
+        return selectedFileId !== null && managedFiles.find(f => f.id === selectedFileId)?.status === 'ready';
+      case 'analysis':
         return uploadedFile !== null;
+      case 'ai-processing':
+        return true; // AI processing is optional
       case 'mapping':
         return mappingValidation.isValid;
       case 'validation':
@@ -199,73 +423,208 @@ export const ImportWorkflow: React.FC = () => {
     }
   };
 
+  const canGoPrevious = () => {
+    return safeCurrentStepIndex > 0 && !isImporting && !loading && !isValidating;
+  };
+
+  const handleStepClick = (stepIndex: number) => {
+    const targetStep = workflowSteps[stepIndex];
+    if (targetStep && (stepIndex <= safeCurrentStepIndex || targetStep.status === 'completed')) {
+      goToStep(targetStep.id as any);
+    }
+  };
+
+  const handleCancel = () => {
+    if (isImporting || loading || isValidating) {
+      setShowCancelDialog(true);
+    } else {
+      resetWorkflow();
+    }
+  };
+
+  const handleCancelConfirm = () => {
+    if (currentJob) {
+      cancelImport();
+    }
+    resetWorkflow();
+    setShowCancelDialog(false);
+  };
+
+  const handleRestart = () => {
+    resetWorkflow();
+    setManagedFiles([]);
+    setSelectedFileId(null);
+    setShowLLMImport(false);
+  };
+
   const getStepContent = () => {
     switch (currentStep) {
       case 'upload':
         return (
           <Box>
-            <FileUploadComponent
+            <FileManager
+              files={managedFiles}
               onFileUpload={handleFileUpload}
-              onFileRemove={handleFileRemove}
+              onFileDelete={handleFileDelete}
+              onFileReplace={handleFileReplace}
+              onFileSelect={handleFileSelect}
+              selectedFileId={selectedFileId}
+              maxFiles={3}
               acceptedFormats={['.csv', '.xlsx', '.xls']}
               maxSize={10 * 1024 * 1024} // 10MB
-              multiple={false}
             />
+          </Box>
+        );
+
+      case 'analysis':
+        return (
+          <Box>
+            {selectedFileId && managedFiles.find(f => f.id === selectedFileId) && (
+              <FileAnalysisDisplay 
+                fileData={managedFiles.find(f => f.id === selectedFileId)!}
+                showDetailed={true}
+              />
+            )}
             
-            {/* AI Import Option */}
+            {/* File Analysis Results */}
             {uploadedFile && uploadedFile.id && (
-              <Card sx={{ mt: 3, border: '2px solid', borderColor: 'primary.main', bgcolor: 'primary.50' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <AIIcon sx={{ mr: 2, color: 'primary.main' }} />
-                    <Typography variant="h6" color="primary">
-                      AI-Powered Smart Import
-                    </Typography>
-                    <Chip label="Recommended" color="primary" size="small" sx={{ ml: 2 }} />
+              <Box sx={{ mt: 3 }}>
+                {/* Enhanced File Analysis Display */}
+                <FileAnalysisDisplay 
+                  fileData={uploadedFile}
+                  showDetailed={true}
+                />
+
+                {/* AI Import Recommendation */}
+                <Card sx={{ 
+                  border: '3px solid', 
+                  borderColor: 'primary.main', 
+                  bgcolor: 'primary.50',
+                  position: 'relative',
+                  overflow: 'visible'
+                }}>
+                  {/* Recommended Badge */}
+                  <Box sx={{
+                    position: 'absolute',
+                    top: -12,
+                    right: 20,
+                    bgcolor: 'warning.main',
+                    color: 'warning.contrastText',
+                    px: 2,
+                    py: 0.5,
+                    borderRadius: 2,
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    zIndex: 1
+                  }}>
+                    ⭐ RECOMMENDED
                   </Box>
-                  
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Let our AI analyze your data to automatically detect entities, preserve original names, 
-                    and create intelligent mappings. This saves time and ensures your data structure is preserved.
-                  </Typography>
-                  
-                  <Grid container spacing={2} sx={{ mb: 2 }}>
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2">Preserves original names</Typography>
+
+                  <CardContent sx={{ pt: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <Box sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        bgcolor: 'primary.main',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mr: 2
+                      }}>
+                        <AIIcon sx={{ color: 'white', fontSize: 24 }} />
                       </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2">Intelligent entity detection</Typography>
+                      <Box>
+                        <Typography variant="h6" color="primary.main" sx={{ fontWeight: 600 }}>
+                          AI-Powered Smart Import
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Skip manual mapping - let AI handle everything automatically
+                        </Typography>
                       </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    </Box>
+                    
+                    <Typography variant="body1" sx={{ mb: 3, fontWeight: 500 }}>
+                      Your file is ready for AI analysis! Our intelligent system will:
+                    </Typography>
+                    
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
                         <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2">Automatic column mapping</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Detect all entities automatically
+                        </Typography>
                       </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
                         <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2">Contextual understanding</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Preserve your original names
+                        </Typography>
                       </Box>
-                    </Grid>
-                  </Grid>
-                  
-                  <Button
-                    variant="contained"
-                    startIcon={<MagicIcon />}
-                    onClick={() => setShowLLMImport(true)}
-                    sx={{ mt: 1 }}
-                  >
-                    Use AI Import
-                  </Button>
-                </CardContent>
-              </Card>
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Create intelligent mappings
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
+                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Save 90% of your time
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Time Comparison */}
+                    <Paper sx={{ p: 2, mb: 3, bgcolor: 'rgba(255,255,255,0.7)' }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1, textAlign: 'center' }}>
+                        ⏱️ Time Comparison
+                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="h6" color="error.main">~30 min</Typography>
+                          <Typography variant="caption" color="text.secondary">Manual Import</Typography>
+                        </Box>
+                        <Typography variant="h4" color="text.secondary">vs</Typography>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="h6" color="success.main">~3 min</Typography>
+                          <Typography variant="caption" color="text.secondary">AI Import</Typography>
+                        </Box>
+                      </Box>
+                    </Paper>
+                    
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        startIcon={<MagicIcon />}
+                        onClick={() => setShowLLMImport(true)}
+                        sx={{ 
+                          minWidth: 200,
+                          background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
+                          '&:hover': {
+                            background: 'linear-gradient(45deg, #1976D2 30%, #0288D1 90%)',
+                            transform: 'translateY(-2px)',
+                            boxShadow: 4,
+                          },
+                          transition: 'all 0.3s ease',
+                        }}
+                      >
+                        Use AI Import
+                      </Button>
+                      
+                      <Button
+                        variant="outlined"
+                        size="large"
+                        onClick={() => nextStep()}
+                        sx={{ minWidth: 120 }}
+                      >
+                        Manual Import
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Box>
             )}
           </Box>
         );
@@ -418,6 +777,24 @@ export const ImportWorkflow: React.FC = () => {
               <Typography variant="h6" gutterBottom>
                 Starting import...
               </Typography>
+              {error && (
+                <Alert severity="error" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
+                  <Typography variant="body2">
+                    Failed to start import: {error}
+                  </Typography>
+                  <Box mt={1}>
+                    <Button 
+                      size="small" 
+                      onClick={() => {
+                        clearError();
+                        previousStep();
+                      }}
+                    >
+                      Go Back
+                    </Button>
+                  </Box>
+                </Alert>
+              )}
             </Box>
           );
         }
@@ -425,21 +802,33 @@ export const ImportWorkflow: React.FC = () => {
         return (
           <ImportProgressMonitor
             jobId={currentJob.id}
-            stages={currentJob.stages.map(stage => ({
-              id: stage.id,
-              name: stage.name,
-              description: `Processing ${stage.name.toLowerCase()}...`,
-              status: stage.status,
-              progress: stage.progress,
+            stages={currentJob.stages?.map((stage, index) => ({
+              id: stage.id || `stage-${index}`,
+              name: stage.name || `Stage ${index + 1}`,
+              description: `Processing ${(stage.name || 'stage').toLowerCase()}...`,
+              status: stage.status || 'pending',
+              progress: Math.min(100, Math.max(0, stage.progress || 0)),
               startTime: stage.startTime ? new Date(stage.startTime) : undefined,
-              endTime: stage.endTime ? new Date(stage.endTime) : undefined
-            }))}
-            currentStage={currentJob.stages.findIndex(s => s.status === 'running')}
-            overallProgress={currentJob.progress}
-            status={currentJob.status}
+              endTime: stage.endTime ? new Date(stage.endTime) : undefined,
+              details: [], // Add empty details array
+              errors: [] // Add empty errors array
+            })) || []}
+            currentStage={Math.max(0, currentJob.stages?.findIndex(s => s.status === 'running') || 0)}
+            overallProgress={Math.min(100, Math.max(0, currentJob.progress || 0))}
+            status={currentJob.status === 'processing' ? 'running' : currentJob.status || 'pending'}
             result={currentJob.result ? {
-              summary: currentJob.result.summary,
-              entities: currentJob.result.entities,
+              summary: currentJob.result.summary || {
+                totalProcessed: 0,
+                successful: 0,
+                failed: 0,
+                warnings: 0
+              },
+              entities: currentJob.result.entities || {
+                venues: { created: 0, updated: 0, errors: 0 },
+                lecturers: { created: 0, updated: 0, errors: 0 },
+                courses: { created: 0, updated: 0, errors: 0 },
+                schedules: { created: 0, updated: 0, errors: 0 }
+              },
               errors: [],
               warnings: []
             } : undefined}
@@ -449,6 +838,7 @@ export const ImportWorkflow: React.FC = () => {
               // This would trigger a download
               console.log('Download report for job:', currentJob.id);
             }}
+            estimatedTimeRemaining={calculateEstimatedTime(currentJob)}
           />
         );
 
@@ -527,78 +917,92 @@ export const ImportWorkflow: React.FC = () => {
           Import Timetable Data
         </Typography>
         <Typography variant="body1" color="text.secondary" textAlign="center" mb={4}>
-          Upload and import your timetable data from CSV or Excel files
+          Upload and import your timetable data with intelligent file management
         </Typography>
+
+        {/* Debug Component - Remove in production */}
+        <ImportWorkflowDebug />
+
+        {/* Enhanced Navigation */}
+        {workflowSteps.length > 0 && (
+          <ImportNavigation
+            steps={workflowSteps}
+            currentStepIndex={safeCurrentStepIndex}
+            canGoNext={canProceedToNext()}
+            canGoPrevious={canGoPrevious()}
+            isProcessing={isImporting || loading || isValidating}
+            progress={isImporting ? currentJob?.progress : undefined}
+            onNext={handleNextStep}
+            onPrevious={previousStep}
+            onStepClick={handleStepClick}
+            onCancel={handleCancel}
+            onRestart={handleRestart}
+            showBreadcrumbs={true}
+            showProgress={true}
+            variant="horizontal"
+          />
+        )}
 
         {/* Error Alert */}
         {(error || uploadError) && (
-          <Alert 
-            severity="error" 
-            sx={{ mb: 3 }}
-            onClose={() => {
-              if (error) clearError();
-              if (uploadError) clearUploadError();
-            }}
-          >
-            {error || uploadError}
-          </Alert>
+          <Slide in direction="up" timeout={500}>
+            <Alert 
+              severity="error" 
+              sx={{ mb: 3 }}
+              onClose={() => {
+                if (error) clearError();
+                if (uploadError) clearUploadError();
+              }}
+            >
+              {error || uploadError}
+            </Alert>
+          </Slide>
         )}
 
-        {/* Progress Stepper */}
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Stepper activeStep={currentStepIndex} alternativeLabel>
-            {steps.map((step) => (
-              <Step key={step.id}>
-                <StepLabel icon={step.icon}>
-                  <Typography variant="subtitle2">{step.label}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {step.description}
-                  </Typography>
-                </StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-        </Paper>
-
         {/* Step Content */}
-        <Paper sx={{ p: 3, mb: 3 }}>
-          {showLLMImport && uploadedFile ? (
-            <LLMImportInterface
-              fileId={uploadedFile.id}
-              onComplete={(result) => {
-                console.log('LLM Import completed:', result);
-                setShowLLMImport(false);
-                // Navigate to completion or show results
-                goToStep('complete');
-              }}
-              onCancel={() => setShowLLMImport(false)}
-            />
-          ) : (
-            getStepContent()
-          )}
-        </Paper>
-
-        {/* Navigation Buttons */}
-        <Box display="flex" justifyContent="space-between">
-          <Button
-            onClick={previousStep}
-            disabled={currentStepIndex === 0 || currentStep === 'import'}
-          >
-            Previous
-          </Button>
-          
-          <Box>
-            {currentStep !== 'complete' && currentStep !== 'import' && (
-              <Button
-                variant="contained"
-                onClick={handleNextStep}
-                disabled={!canProceedToNext() || loading || isValidating || isImporting}
-              >
-                {currentStep === 'preview' ? 'Start Import' : 'Next'}
-              </Button>
+        <Fade in timeout={600}>
+          <Paper sx={{ p: 3, mb: 3 }}>
+            {showLLMImport && uploadedFile ? (
+              <LLMImportInterface
+                fileId={uploadedFile.id}
+                fileData={uploadedFile}
+                onComplete={(result) => {
+                  console.log('LLM Import completed:', result);
+                  setShowLLMImport(false);
+                  goToStep('complete');
+                }}
+                onCancel={() => setShowLLMImport(false)}
+              />
+            ) : (
+              getStepContent()
             )}
-          </Box>
-        </Box>
+          </Paper>
+        </Fade>
+
+        {/* Cancel Confirmation Dialog */}
+        <Dialog open={showCancelDialog} onClose={() => setShowCancelDialog(false)}>
+          <DialogTitle>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <WarningIcon sx={{ mr: 1, color: 'warning.main' }} />
+              Cancel Import Process
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to cancel the import process? 
+              {isImporting && ' This will stop the current import job.'}
+              {' All progress will be lost.'}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowCancelDialog(false)}>
+              Continue Import
+            </Button>
+            <Button onClick={handleCancelConfirm} color="error" variant="contained">
+              Cancel Import
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Container>
   );

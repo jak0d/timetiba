@@ -23,17 +23,26 @@ export interface LLMAnalysisResult {
 }
 
 export class SimpleLLMDataProcessingService {
-  private genAI: GoogleGenerativeAI;
-  private model: any;
+  private genAI: GoogleGenerativeAI | null = null;
+  private model: any = null;
+  private isAvailable: boolean = false;
 
   constructor() {
     const apiKey = process.env['GEMINI_API_KEY'];
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY environment variable is required');
+    if (apiKey) {
+      try {
+        this.genAI = new GoogleGenerativeAI(apiKey);
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+        this.isAvailable = true;
+        logger.info('Gemini AI service initialized successfully');
+      } catch (error) {
+        logger.warn('Failed to initialize Gemini AI service', error);
+        this.isAvailable = false;
+      }
+    } else {
+      logger.warn('GEMINI_API_KEY not provided - LLM features will use fallback analysis');
+      this.isAvailable = false;
     }
-    
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
   }
 
   async processDataWithLLM(
@@ -43,8 +52,14 @@ export class SimpleLLMDataProcessingService {
     try {
       logger.info('Starting LLM data analysis', { 
         rowCount: parsedData.rows.length,
-        headers: parsedData.headers 
+        headers: parsedData.headers,
+        usingAI: this.isAvailable
       });
+
+      if (!this.isAvailable || !this.model) {
+        logger.info('Using fallback analysis - Gemini AI not available');
+        return this.createFallbackAnalysis(parsedData);
+      }
 
       // Create a simple prompt for the AI
       const prompt = this.createAnalysisPrompt(parsedData);
@@ -60,8 +75,8 @@ export class SimpleLLMDataProcessingService {
         return this.createFallbackAnalysis(parsedData);
       }
     } catch (error) {
-      logger.error('LLM processing failed', error);
-      throw new Error(`LLM processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error('LLM processing failed, using fallback analysis', error);
+      return this.createFallbackAnalysis(parsedData);
     }
   }
 
@@ -249,6 +264,10 @@ Extract unique entities from the data. Preserve original names exactly as they a
       .map(word => word.charAt(0).toUpperCase())
       .join('')
       .substring(0, 6) + '101';
+  }
+
+  public isServiceAvailable(): boolean {
+    return this.isAvailable;
   }
 
   private getDefaultOptions(): LLMProcessingOptions {

@@ -16,6 +16,8 @@
     "test:llm": "jest src/test/import/llmDataProcessingService.test.ts",
     "test:llm:e2e": "playwright test e2e/llm-import.spec.ts",
     "demo:llm-import": "ts-node src/scripts/testLLMImport.ts",
+    "test:ai-import-flow": "ts-node src/scripts/testAIImportFlow.ts",
+    "test:ai-import-components": "ts-node src/scripts/testAIImportFlow.ts components",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "migrate": "ts-node src/scripts/migrate.ts up",

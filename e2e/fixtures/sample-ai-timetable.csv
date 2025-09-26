@@ -1,0 +1,21 @@
+Course Name,Lecturer Name,Venue,Day of Week,Start Time,End Time,Student Group,Duration,Department
+Mathematics 101,Dr. Sarah Smith,Room A-101,Monday,09:00,10:30,Computer Science Year 1,90,Mathematics
+Physics 201,Prof. John Johnson,Lab B-202,Monday,11:00,12:30,Physics Year 2,90,Physics
+Computer Science Fundamentals,Dr. Emily Brown,Computer Lab D-301,Monday,14:00,15:30,Computer Science Year 1,90,Computer Science
+Engineering Design,Mr. David Wilson,Workshop E-101,Monday,16:00,17:30,Engineering Year 2,90,Engineering
+Statistics 102,Dr. Sarah Smith,Room A-102,Tuesday,09:00,10:30,Mathematics Year 1,90,Mathematics
+Chemistry 201,Dr. Michael Davis,Lab C-201,Tuesday,11:00,12:30,Chemistry Year 2,90,Chemistry
+Programming Basics,Dr. Emily Brown,Computer Lab D-302,Tuesday,14:00,15:30,Computer Science Year 1,90,Computer Science
+Mechanical Engineering,Mr. David Wilson,Workshop E-102,Tuesday,16:00,17:30,Engineering Year 2,90,Engineering
+Calculus 201,Dr. Sarah Smith,Room A-103,Wednesday,09:00,10:30,Mathematics Year 2,90,Mathematics
+Advanced Physics,Prof. John Johnson,Lab B-203,Wednesday,11:00,12:30,Physics Year 3,90,Physics
+Database Systems,Dr. Emily Brown,Computer Lab D-303,Wednesday,14:00,15:30,Computer Science Year 2,90,Computer Science
+Structural Analysis,Mr. David Wilson,Workshop E-103,Wednesday,16:00,17:30,Engineering Year 3,90,Engineering
+Linear Algebra,Dr. Sarah Smith,Room A-104,Thursday,09:00,10:30,Mathematics Year 2,90,Mathematics
+Quantum Physics,Prof. John Johnson,Lab B-204,Thursday,11:00,12:30,Physics Year 3,90,Physics
+Software Engineering,Dr. Emily Brown,Computer Lab D-304,Thursday,14:00,15:30,Computer Science Year 3,90,Computer Science
+Thermodynamics,Mr. David Wilson,Workshop E-104,Thursday,16:00,17:30,Engineering Year 3,90,Engineering
+Discrete Mathematics,Dr. Sarah Smith,Room A-105,Friday,09:00,10:30,Computer Science Year 2,90,Mathematics
+Optics,Prof. John Johnson,Lab B-205,Friday,11:00,12:30,Physics Year 2,90,Physics
+Web Development,Dr. Emily Brown,Computer Lab D-305,Friday,14:00,15:30,Computer Science Year 2,90,Computer Science
+Fluid Mechanics,Mr. David Wilson,Workshop E-105,Friday,16:00,17:30,Engineering Year 2,90,Engineering

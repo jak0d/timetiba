@@ -67,4 +67,11 @@ router.get('/llm/status', importController.getLLMStatus.bind(importController));
 // Mapping configuration endpoints
 router.use('/mappings', mappingConfigurationRoutes);
 
+// Import job endpoints
+router.post('/jobs', importController.startImportJob.bind(importController));
+router.get('/jobs', importController.getUserImportJobs.bind(importController));
+router.get('/jobs/:jobId', importController.getImportJobStatus.bind(importController));
+router.post('/jobs/:jobId/cancel', importController.cancelImportJob.bind(importController));
+router.post('/jobs/:jobId/retry', importController.retryImportJob.bind(importController));
+
 export { router as importRoutes };
