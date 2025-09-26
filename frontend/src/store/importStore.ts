@@ -15,7 +15,7 @@ interface ImportFile {
 
 interface ImportWorkflowState {
   // Current workflow state
-  currentStep: 'upload' | 'mapping' | 'validation' | 'preview' | 'import' | 'complete';
+  currentStep: 'upload' | 'analysis' | 'ai-processing' | 'mapping' | 'validation' | 'preview' | 'import' | 'complete';
   currentStage: string;
   progress: number;
   
@@ -186,7 +186,7 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
             isUploading: false,
             uploadError: null, // Explicitly clear upload error on success
             error: null, // Also clear general error
-            currentStep: 'mapping',
+            // Remove automatic step progression - user must manually advance
           });
           console.log('Upload successful, state updated');
         } catch (error) {
@@ -293,7 +293,8 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
         set({ isValidating: true });
         try {
           const result = await importApi.validateData(uploadedFile.id, columnMappings);
-          set({ validationResult: result, currentStep: 'validation' });
+          set({ validationResult: result });
+          // Remove automatic step progression - user must manually advance
         } catch (error) {
           set({ error: error instanceof Error ? error.message : 'Data validation failed' });
         } finally {
@@ -310,7 +311,7 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
           const response = await importApi.getDataPreview(uploadedFile.id, columnMappings, page, limit);
           set({ 
             previewData: response.data,
-            currentStep: 'preview',
+            // Remove automatic step progression - user must manually advance
           });
         } catch (error) {
           set({ error: error instanceof Error ? error.message : 'Failed to load preview data' });
@@ -369,7 +370,7 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
           const job = await importApi.startImport(uploadedFile.id, columnMappings, options);
           set({ 
             currentJob: job,
-            currentStep: 'import',
+            // Remove automatic step progression - user must manually advance
           });
           
           // Start progress subscription
@@ -415,9 +416,8 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
         const unsubscribe = importApi.subscribeToImportProgress(currentJob.id, (job) => {
           set({ currentJob: job });
           
-          if (job.status === 'completed') {
-            set({ currentStep: 'complete' });
-          } else if (job.status === 'failed' || job.status === 'cancelled') {
+          // Remove automatic step progression - user must manually advance to complete step
+          if (job.status === 'failed' || job.status === 'cancelled') {
             set({ isImporting: false });
           }
         });
@@ -432,7 +432,7 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
 
       nextStep: () => {
         const { currentStep } = get();
-        const steps: ImportWorkflowState['currentStep'][] = ['upload', 'mapping', 'validation', 'preview', 'import', 'complete'];
+        const steps: ImportWorkflowState['currentStep'][] = ['upload', 'analysis', 'ai-processing', 'mapping', 'validation', 'preview', 'import', 'complete'];
         const currentIndex = steps.indexOf(currentStep);
         if (currentIndex < steps.length - 1) {
           set({ currentStep: steps[currentIndex + 1] });
@@ -441,10 +441,30 @@ export const useImportStore = create<ImportWorkflowState & ImportWorkflowActions
 
       previousStep: () => {
         const { currentStep } = get();
-        const steps: ImportWorkflowState['currentStep'][] = ['upload', 'mapping', 'validation', 'preview', 'import', 'complete'];
+        const steps: ImportWorkflowState['currentStep'][] = ['upload', 'analysis', 'ai-processing', 'mapping', 'validation', 'preview', 'import', 'complete'];
         const currentIndex = steps.indexOf(currentStep);
+        
         if (currentIndex > 0) {
-          set({ currentStep: steps[currentIndex - 1] });
+          // Handle special cases for workflow branching
+          if (currentStep === 'validation') {
+            // From validation, go back to mapping or ai-processing depending on which was used
+            const { columnMappings } = get();
+            if (columnMappings.length > 0) {
+              // If we have mappings, check if they came from AI or manual
+              set({ currentStep: 'mapping' }); // Default to mapping
+            } else {
+              set({ currentStep: 'analysis' }); // Go back to analysis to choose method
+            }
+          } else if (currentStep === 'mapping') {
+            // From mapping, always go back to analysis
+            set({ currentStep: 'analysis' });
+          } else if (currentStep === 'ai-processing') {
+            // From AI processing, go back to analysis
+            set({ currentStep: 'analysis' });
+          } else {
+            // For other steps, just go to previous step
+            set({ currentStep: steps[currentIndex - 1] });
+          }
         }
       },
 

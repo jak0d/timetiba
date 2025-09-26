@@ -51,6 +51,7 @@ interface ImportNavigationProps {
   canGoPrevious: boolean;
   isProcessing: boolean;
   progress?: number;
+  nextButtonText?: string;
   onNext: () => void;
   onPrevious: () => void;
   onStepClick: (stepIndex: number) => void;
@@ -68,6 +69,7 @@ export const ImportNavigation: React.FC<ImportNavigationProps> = ({
   canGoPrevious,
   isProcessing,
   progress,
+  nextButtonText,
   onNext,
   onPrevious,
   onStepClick,
@@ -276,6 +278,26 @@ export const ImportNavigation: React.FC<ImportNavigationProps> = ({
             )}
           </Box>
 
+          {/* Progressive Workflow Indicator */}
+          {!isProcessing && canGoNext && (
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1, 
+              mb: 2,
+              p: 1.5,
+              bgcolor: 'info.50',
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'info.200'
+            }}>
+              <InfoIcon color="info" fontSize="small" />
+              <Typography variant="body2" color="info.main">
+                Complete this step and click "{nextButtonText || 'Next'}" to continue
+              </Typography>
+            </Box>
+          )}
+
           {isProcessing && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <Typography variant="body2" color="primary.main">
@@ -336,7 +358,7 @@ export const ImportNavigation: React.FC<ImportNavigationProps> = ({
             disabled={!canGoNext || isProcessing}
             sx={{ minWidth: 120 }}
           >
-            {currentStepIndex === steps.length - 1 ? 'Finish' : 'Next'}
+            {nextButtonText || (currentStepIndex === steps.length - 1 ? 'Finish' : 'Next')}
           </Button>
         </Box>
       </Box>

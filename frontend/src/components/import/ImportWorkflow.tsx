@@ -78,7 +78,7 @@ const calculateEstimatedTime = (job: any): number | undefined => {
   return currentStageRemaining + (remainingStages * avgTimePerStage);
 };
 
-// Define workflow steps with enhanced metadata
+// Define workflow steps with enhanced metadata for progressive workflow
 const getWorkflowSteps = (hasAIOption: boolean) => [
   {
     id: 'upload',
@@ -86,15 +86,17 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     icon: <CloudUpload />,
     description: 'Upload and manage your data files',
     status: 'pending' as const,
-    estimatedTime: '1-2 min'
+    estimatedTime: '1-2 min',
+    requiresManualAdvancement: true
   },
   {
     id: 'analysis',
     label: 'File Analysis',
     icon: <CheckCircle />,
-    description: 'Analyze file structure and content',
+    description: 'Analyze file structure and choose import method',
     status: 'pending' as const,
-    estimatedTime: '30 sec'
+    estimatedTime: '30 sec',
+    requiresManualAdvancement: true
   },
   ...(hasAIOption ? [{
     id: 'ai-processing',
@@ -103,7 +105,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     description: 'AI-powered entity detection and mapping',
     status: 'pending' as const,
     optional: true,
-    estimatedTime: '2-3 min'
+    estimatedTime: '2-3 min',
+    requiresManualAdvancement: true
   }] : []),
   {
     id: 'mapping',
@@ -112,7 +115,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     description: 'Map columns to system fields',
     status: 'pending' as const,
     optional: hasAIOption,
-    estimatedTime: '5-10 min'
+    estimatedTime: '5-10 min',
+    requiresManualAdvancement: true
   },
   {
     id: 'validation',
@@ -120,7 +124,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     icon: <CheckCircle />,
     description: 'Validate data quality and integrity',
     status: 'pending' as const,
-    estimatedTime: '1-2 min'
+    estimatedTime: '1-2 min',
+    requiresManualAdvancement: true
   },
   {
     id: 'preview',
@@ -128,7 +133,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     icon: <Visibility />,
     description: 'Review data before final import',
     status: 'pending' as const,
-    estimatedTime: '2-5 min'
+    estimatedTime: '2-5 min',
+    requiresManualAdvancement: true
   },
   {
     id: 'import',
@@ -136,7 +142,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     icon: <PlayArrow />,
     description: 'Execute the data import process',
     status: 'pending' as const,
-    estimatedTime: '3-10 min'
+    estimatedTime: '3-10 min',
+    requiresManualAdvancement: true
   },
   {
     id: 'complete',
@@ -144,7 +151,8 @@ const getWorkflowSteps = (hasAIOption: boolean) => [
     icon: <Done />,
     description: 'Import completed successfully',
     status: 'pending' as const,
-    estimatedTime: '1 min'
+    estimatedTime: '1 min',
+    requiresManualAdvancement: false
   }
 ];
 
@@ -234,35 +242,91 @@ export const ImportWorkflow: React.FC = () => {
     setWorkflowSteps(updatedSteps);
   }, [currentStep, uploadedFile]);
 
-  // Convert uploaded file to managed file format
+  // Convert uploaded file to managed file format and prevent duplicates
   useEffect(() => {
-    if (uploadedFile && !managedFiles.find(f => f.id === uploadedFile.id)) {
-      const managedFile = {
-        id: uploadedFile.id,
-        filename: uploadedFile.filename,
-        size: uploadedFile.size,
-        status: 'ready' as const,
-        progress: 100,
-        uploadedAt: new Date(),
-        metadata: uploadedFile.metadata ? {
-          rows: uploadedFile.metadata.rows,
-          columns: uploadedFile.metadata.columns,
-          preview: uploadedFile.metadata.preview,
-          fileType: uploadedFile.filename.split('.').pop()?.toUpperCase() || 'Unknown'
-        } : undefined
-      };
+    if (uploadedFile) {
+      const existingFile = managedFiles.find(f => f.id === uploadedFile.id);
       
-      setManagedFiles(prev => [...prev.filter(f => f.id !== uploadedFile.id), managedFile]);
-      setSelectedFileId(uploadedFile.id);
+      if (!existingFile) {
+        const managedFile = {
+          id: uploadedFile.id,
+          filename: uploadedFile.filename,
+          size: uploadedFile.size,
+          status: 'ready' as const,
+          progress: 100,
+          uploadedAt: new Date(),
+          metadata: uploadedFile.metadata ? {
+            rows: uploadedFile.metadata.rows,
+            columns: uploadedFile.metadata.columns,
+            preview: uploadedFile.metadata.preview,
+            fileType: uploadedFile.filename.split('.').pop()?.toUpperCase() || 'Unknown'
+          } : undefined
+        };
+        
+        // Remove any temporary files and files with same name, then add the real uploaded file
+        setManagedFiles(prev => [
+          ...prev.filter(f => 
+            f.id !== uploadedFile.id && 
+            !f.id.startsWith('temp-') && 
+            f.filename !== uploadedFile.filename
+          ), 
+          managedFile
+        ]);
+        setSelectedFileId(uploadedFile.id);
+      } else if (existingFile.status !== 'ready') {
+        // Update existing file to ready status
+        setManagedFiles(prev => prev.map(f => 
+          f.id === uploadedFile.id 
+            ? { ...f, status: 'ready' as const, progress: 100 }
+            : f
+        ));
+        setSelectedFileId(uploadedFile.id);
+      }
     }
-  }, [uploadedFile, managedFiles]);
+  }, [uploadedFile]);
 
+  // Clean up duplicate files based on filename
   useEffect(() => {
-    // Auto-generate mappings when file is uploaded
-    if (currentStep === 'mapping' && sourceColumns.length > 0 && columnMappings.length === 0) {
-      generateAutoMappings();
+    const filesByName = new Map<string, any[]>();
+    
+    // Group files by filename
+    managedFiles.forEach(file => {
+      const files = filesByName.get(file.filename) || [];
+      files.push(file);
+      filesByName.set(file.filename, files);
+    });
+    
+    // Check for duplicates and clean them up
+    let hasChanges = false;
+    const cleanedFiles: any[] = [];
+    
+    filesByName.forEach((files, filename) => {
+      if (files.length > 1) {
+        hasChanges = true;
+        // Keep the most recent ready file, or the one that matches uploadedFile
+        const readyFiles = files.filter(f => f.status === 'ready');
+        const uploadedFileMatch = files.find(f => f.id === uploadedFile?.id);
+        
+        if (uploadedFileMatch) {
+          cleanedFiles.push(uploadedFileMatch);
+        } else if (readyFiles.length > 0) {
+          // Keep the most recent ready file
+          cleanedFiles.push(readyFiles[readyFiles.length - 1]);
+        } else {
+          // Keep the most recent file
+          cleanedFiles.push(files[files.length - 1]);
+        }
+      } else {
+        cleanedFiles.push(files[0]);
+      }
+    });
+    
+    if (hasChanges) {
+      setManagedFiles(cleanedFiles);
     }
-  }, [currentStep, sourceColumns, columnMappings.length, generateAutoMappings]);
+  }, [managedFiles, uploadedFile?.id]);
+
+  // Removed automatic mapping generation - user must manually trigger this
 
   useEffect(() => {
     // Clear errors when step changes (except when going to upload step)
@@ -278,9 +342,9 @@ export const ImportWorkflow: React.FC = () => {
     clearUploadError();
     
     // Add file to managed files with uploading status
-    const fileId = `${file.name}-${Date.now()}`;
+    const tempFileId = `temp-${file.name}-${Date.now()}`;
     const newManagedFile = {
-      id: fileId,
+      id: tempFileId,
       filename: file.name,
       size: file.size,
       status: 'uploading' as const,
@@ -293,15 +357,13 @@ export const ImportWorkflow: React.FC = () => {
     try {
       // Update progress during upload
       setManagedFiles(prev => prev.map(f => 
-        f.id === fileId ? { ...f, progress: 50 } : f
+        f.id === tempFileId ? { ...f, progress: 50 } : f
       ));
       
       await uploadFile(file);
       
-      // Update to analyzing status
-      setManagedFiles(prev => prev.map(f => 
-        f.id === fileId ? { ...f, status: 'analyzing', progress: 75 } : f
-      ));
+      // Remove the temporary file entry since uploadFile will create the real one
+      setManagedFiles(prev => prev.filter(f => f.id !== tempFileId));
       
       console.log('ImportWorkflow: File upload completed successfully');
     } catch (error) {
@@ -309,7 +371,7 @@ export const ImportWorkflow: React.FC = () => {
       
       // Update file status to error
       setManagedFiles(prev => prev.map(f => 
-        f.id === fileId ? { 
+        f.id === tempFileId ? { 
           ...f, 
           status: 'error', 
           progress: 0, 
@@ -344,17 +406,23 @@ export const ImportWorkflow: React.FC = () => {
         } : f
       ));
       
+      // Remove the old file from managed files before upload
+      setManagedFiles(prev => prev.filter(f => f.id !== fileId));
+      
       await uploadFile(newFile);
       console.log('File replaced successfully');
     } catch (error) {
       console.error('File replacement failed:', error);
-      setManagedFiles(prev => prev.map(f => 
-        f.id === fileId ? { 
-          ...f, 
-          status: 'error', 
-          error: error instanceof Error ? error.message : 'Replacement failed' 
-        } : f
-      ));
+      // Re-add the file with error status if replacement fails
+      setManagedFiles(prev => [...prev, {
+        id: fileId,
+        filename: newFile.name,
+        size: newFile.size,
+        status: 'error' as const,
+        progress: 0,
+        uploadedAt: new Date(),
+        error: error instanceof Error ? error.message : 'Replacement failed'
+      }]);
     }
   };
 
@@ -378,26 +446,60 @@ export const ImportWorkflow: React.FC = () => {
   };
 
   const handleNextStep = async () => {
+    // Progressive workflow - user must manually advance through each step
     switch (currentStep) {
       case 'upload':
         if (uploadedFile) {
-          nextStep();
+          // Move to analysis step - no automatic processing
+          goToStep('analysis');
+        }
+        break;
+      case 'analysis':
+        // User must choose between AI or manual import
+        // Show an alert if they try to proceed without selecting
+        alert('Please select an import method (AI-Powered or Manual) before proceeding.');
+        break;
+      case 'ai-processing':
+        // After AI processing completes, user must manually proceed
+        if (columnMappings.length > 0) {
+          goToStep('validation');
+        } else {
+          // Skip to mapping if AI didn't work
+          goToStep('mapping');
         }
         break;
       case 'mapping':
+        // User must manually proceed after completing mappings
         if (mappingValidation.isValid) {
-          await validateData();
+          goToStep('validation');
         }
         break;
       case 'validation':
-        if (validationResult) {
-          await loadPreviewData();
+        // User must manually trigger data validation and then proceed
+        if (!validationResult) {
+          await validateData();
+        } else {
+          goToStep('preview');
         }
         break;
       case 'preview':
-        await startImport();
+        // User must manually trigger preview loading and then proceed
+        if (previewData.length === 0) {
+          await loadPreviewData();
+        } else {
+          goToStep('import');
+        }
+        break;
+      case 'import':
+        // User must manually start the import process
+        if (!currentJob) {
+          await startImport();
+        } else if (currentJob.status === 'completed') {
+          goToStep('complete');
+        }
         break;
       default:
+        // For any other steps, just move to next
         nextStep();
     }
   };
@@ -407,20 +509,53 @@ export const ImportWorkflow: React.FC = () => {
       case 'upload':
         return selectedFileId !== null && managedFiles.find(f => f.id === selectedFileId)?.status === 'ready';
       case 'analysis':
-        return uploadedFile !== null;
+        // User cannot proceed until they select an import method
+        // The buttons in the analysis step handle the navigation directly
+        return false;
       case 'ai-processing':
-        return true; // AI processing is optional
+        // User can proceed after AI processing is complete
+        return columnMappings.length > 0;
       case 'mapping':
         return mappingValidation.isValid;
       case 'validation':
+        // User can proceed to preview after validation is complete
         return validationResult !== null;
       case 'preview':
+        // User can proceed to import after preview is loaded
         return previewData.length > 0;
       case 'import':
+        // User can proceed to complete after import finishes
         return currentJob?.status === 'completed';
       default:
         return true;
     }
+  };
+
+  const getNextButtonText = () => {
+    switch (currentStep) {
+      case 'upload':
+        return 'Analyze File';
+      case 'analysis':
+        return 'Select Import Method'; // User must choose AI or manual
+      case 'ai-processing':
+        return 'Proceed to Validation';
+      case 'mapping':
+        return 'Validate Data';
+      case 'validation':
+        return validationResult ? 'Preview Data' : 'Run Validation';
+      case 'preview':
+        return previewData.length > 0 ? 'Start Import' : 'Load Preview';
+      case 'import':
+        return currentJob?.status === 'completed' ? 'View Results' : 'Start Import';
+      default:
+        return 'Next';
+    }
+  };
+
+  const isProcessingStep = () => {
+    return (currentStep === 'validation' && !validationResult && isValidating) ||
+           (currentStep === 'preview' && previewData.length === 0 && loading) ||
+           (currentStep === 'import' && !currentJob && isImporting);
   };
 
   const canGoPrevious = () => {
@@ -479,149 +614,111 @@ export const ImportWorkflow: React.FC = () => {
       case 'analysis':
         return (
           <Box>
-            {selectedFileId && managedFiles.find(f => f.id === selectedFileId) && (
-              <FileAnalysisDisplay 
-                fileData={managedFiles.find(f => f.id === selectedFileId)!}
-                showDetailed={true}
-              />
-            )}
-            
-            {/* File Analysis Results */}
+            {/* Progressive Workflow Notice */}
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Progressive Import Workflow
+              </Typography>
+              <Typography variant="body2">
+                Review your file analysis below and choose your import method. 
+                Click "Continue" when ready to proceed - no automatic progression will occur.
+              </Typography>
+            </Alert>
+
+            {/* Show analysis for the selected file only */}
             {uploadedFile && uploadedFile.id && (
-              <Box sx={{ mt: 3 }}>
+              <Box>
                 {/* Enhanced File Analysis Display */}
                 <FileAnalysisDisplay 
                   fileData={uploadedFile}
                   showDetailed={true}
                 />
 
-                {/* AI Import Recommendation */}
+                {/* Import Method Selection */}
                 <Card sx={{ 
-                  border: '3px solid', 
+                  border: '2px solid', 
                   borderColor: 'primary.main', 
                   bgcolor: 'primary.50',
-                  position: 'relative',
-                  overflow: 'visible'
+                  mt: 3
                 }}>
-                  {/* Recommended Badge */}
-                  <Box sx={{
-                    position: 'absolute',
-                    top: -12,
-                    right: 20,
-                    bgcolor: 'warning.main',
-                    color: 'warning.contrastText',
-                    px: 2,
-                    py: 0.5,
-                    borderRadius: 2,
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    zIndex: 1
-                  }}>
-                    ⭐ RECOMMENDED
-                  </Box>
-
-                  <CardContent sx={{ pt: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <Box sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: '50%',
-                        bgcolor: 'primary.main',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mr: 2
-                      }}>
-                        <AIIcon sx={{ color: 'white', fontSize: 24 }} />
-                      </Box>
-                      <Box>
-                        <Typography variant="h6" color="primary.main" sx={{ fontWeight: 600 }}>
-                          AI-Powered Smart Import
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Skip manual mapping - let AI handle everything automatically
-                        </Typography>
-                      </Box>
-                    </Box>
-                    
-                    <Typography variant="body1" sx={{ mb: 3, fontWeight: 500 }}>
-                      Your file is ready for AI analysis! Our intelligent system will:
+                  <CardContent>
+                    <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
+                      Choose Your Import Method
                     </Typography>
                     
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          Detect all entities automatically
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                      <Typography variant="body2">
+                        <strong>Required:</strong> You must select an import method below to proceed. 
+                        The "Next" button is disabled until you make a selection.
+                      </Typography>
+                    </Alert>
+                    
+                    <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+                      {/* AI Import Option */}
+                      <Paper sx={{ 
+                        p: 2, 
+                        flex: 1, 
+                        border: '2px solid', 
+                        borderColor: 'success.main',
+                        bgcolor: 'success.50'
+                      }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <AIIcon sx={{ color: 'success.main', mr: 1 }} />
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                            AI-Powered Import
+                          </Typography>
+                          <Chip label="RECOMMENDED" size="small" color="warning" sx={{ ml: 1 }} />
+                        </Box>
+                        <Typography variant="body2" sx={{ mb: 2 }}>
+                          Let AI automatically detect entities and create mappings. Saves 90% of your time.
                         </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          Preserve your original names
+                        <Button
+                          variant="contained"
+                          color="success"
+                          startIcon={<MagicIcon />}
+                          onClick={() => {
+                            setShowLLMImport(true);
+                            goToStep('ai-processing');
+                          }}
+                          fullWidth
+                        >
+                          Use AI Import
+                        </Button>
+                      </Paper>
+
+                      {/* Manual Import Option */}
+                      <Paper sx={{ 
+                        p: 2, 
+                        flex: 1, 
+                        border: '2px solid', 
+                        borderColor: 'grey.300'
+                      }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <TableChart sx={{ color: 'primary.main', mr: 1 }} />
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                            Manual Import
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" sx={{ mb: 2 }}>
+                          Manually map columns and configure import settings. Full control over the process.
                         </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          Create intelligent mappings
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '45%' }}>
-                        <CheckCircle sx={{ color: 'success.main', mr: 1, fontSize: 20 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          Save 90% of your time
-                        </Typography>
-                      </Box>
+                        <Button
+                          variant="outlined"
+                          onClick={() => goToStep('mapping')}
+                          fullWidth
+                        >
+                          Manual Import
+                        </Button>
+                      </Paper>
                     </Box>
 
-                    {/* Time Comparison */}
-                    <Paper sx={{ p: 2, mb: 3, bgcolor: 'rgba(255,255,255,0.7)' }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1, textAlign: 'center' }}>
-                        ⏱️ Time Comparison
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      <Typography variant="body2">
+                        <strong>Progressive Workflow:</strong> After making your selection, 
+                        you'll need to manually advance through each subsequent step. 
+                        No automatic progression will occur.
                       </Typography>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
-                        <Box sx={{ textAlign: 'center' }}>
-                          <Typography variant="h6" color="error.main">~30 min</Typography>
-                          <Typography variant="caption" color="text.secondary">Manual Import</Typography>
-                        </Box>
-                        <Typography variant="h4" color="text.secondary">vs</Typography>
-                        <Box sx={{ textAlign: 'center' }}>
-                          <Typography variant="h6" color="success.main">~3 min</Typography>
-                          <Typography variant="caption" color="text.secondary">AI Import</Typography>
-                        </Box>
-                      </Box>
-                    </Paper>
-                    
-                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                      <Button
-                        variant="contained"
-                        size="large"
-                        startIcon={<MagicIcon />}
-                        onClick={() => setShowLLMImport(true)}
-                        sx={{ 
-                          minWidth: 200,
-                          background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
-                          '&:hover': {
-                            background: 'linear-gradient(45deg, #1976D2 30%, #0288D1 90%)',
-                            transform: 'translateY(-2px)',
-                            boxShadow: 4,
-                          },
-                          transition: 'all 0.3s ease',
-                        }}
-                      >
-                        Use AI Import
-                      </Button>
-                      
-                      <Button
-                        variant="outlined"
-                        size="large"
-                        onClick={() => nextStep()}
-                        sx={{ minWidth: 120 }}
-                      >
-                        Manual Import
-                      </Button>
-                    </Box>
+                    </Alert>
                   </CardContent>
                 </Card>
               </Box>
@@ -629,20 +726,167 @@ export const ImportWorkflow: React.FC = () => {
           </Box>
         );
 
+      case 'ai-processing':
+        return (
+          <Box>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                AI Processing Step
+              </Typography>
+              <Typography variant="body2">
+                AI will analyze your data and create intelligent mappings. 
+                If processing fails, you can retry or switch to manual import.
+              </Typography>
+            </Alert>
+
+            {/* Error Recovery Information */}
+            <Card sx={{ mb: 3, border: '1px solid', borderColor: 'warning.main', bgcolor: 'warning.50' }}>
+              <CardContent>
+                <Typography variant="subtitle2" color="warning.main" sx={{ mb: 1, fontWeight: 600 }}>
+                  💡 If AI Processing Fails
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  Don't worry! If you see a "Processing Error" message, you have several options:
+                </Typography>
+                <Box component="ul" sx={{ pl: 2, m: 0 }}>
+                  <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Retry:</strong> Click the retry button to try AI processing again
+                  </Typography>
+                  <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Manual Import:</strong> Switch to manual column mapping for full control
+                  </Typography>
+                  <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Go Back:</strong> Return to analysis to check your file or upload a different one
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+
+            {showLLMImport && (
+              <LLMImportInterface
+                fileId={uploadedFile?.id || ''}
+                onComplete={(mappings) => {
+                  setColumnMappings(mappings);
+                  setShowLLMImport(false);
+                }}
+                onCancel={() => {
+                  setShowLLMImport(false);
+                  goToStep('analysis');
+                }}
+              />
+            )}
+
+            {!showLLMImport && columnMappings.length > 0 && (
+              <Alert severity="success" sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  AI Processing Complete!
+                </Typography>
+                <Typography variant="body2">
+                  AI has successfully analyzed your data and created {columnMappings.length} column mappings. 
+                  Click "Proceed to Validation" to continue with the import process.
+                </Typography>
+              </Alert>
+            )}
+
+            {!showLLMImport && columnMappings.length === 0 && (
+              <Box>
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    AI Processing Not Started
+                  </Typography>
+                  <Typography variant="body2">
+                    AI processing hasn't been started yet or was cancelled. 
+                    You can start AI processing or switch to manual import.
+                  </Typography>
+                </Alert>
+
+                <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => setShowLLMImport(true)}
+                    startIcon={<AIIcon />}
+                  >
+                    Start AI Processing
+                  </Button>
+                  
+                  <Button
+                    variant="outlined"
+                    onClick={() => goToStep('mapping')}
+                  >
+                    Switch to Manual Import
+                  </Button>
+                  
+                  <Button
+                    variant="text"
+                    onClick={() => goToStep('analysis')}
+                  >
+                    Back to Analysis
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        );
+
       case 'mapping':
         return (
-          <ColumnMappingInterface
-            sourceColumns={sourceColumns}
-            targetFields={targetFields}
-            initialMappings={columnMappings}
-            onMappingChange={handleMappingChange}
-            onValidationChange={handleMappingValidation}
-            loading={isGeneratingMappings}
-          />
+          <Box>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Manual Column Mapping Required
+              </Typography>
+              <Typography variant="body2">
+                Configure your column mappings below. Once complete, click "Validate Data" to proceed to the next step.
+              </Typography>
+            </Alert>
+            
+            <ColumnMappingInterface
+              sourceColumns={sourceColumns}
+              targetFields={targetFields}
+              initialMappings={columnMappings}
+              onMappingChange={handleMappingChange}
+              onValidationChange={handleMappingValidation}
+              loading={isGeneratingMappings}
+            />
+          </Box>
         );
 
       case 'validation':
-        if (!validationResult) {
+        if (!validationResult && !isValidating) {
+          return (
+            <Box>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Data Validation Required
+                </Typography>
+                <Typography variant="body2">
+                  Click "Run Validation" to validate your data against business rules. 
+                  You must complete validation before proceeding.
+                </Typography>
+              </Alert>
+              
+              <Box textAlign="center" py={4}>
+                <Typography variant="h6" gutterBottom>
+                  Ready to Validate Data
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Your column mappings are configured. Click the button below to start validation.
+                </Typography>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={() => validateData()}
+                  startIcon={<CheckCircle />}
+                >
+                  Run Validation
+                </Button>
+              </Box>
+            </Box>
+          );
+        }
+
+        if (isValidating) {
           return (
             <Box textAlign="center" py={4}>
               <Typography variant="h6" gutterBottom>
@@ -732,7 +976,40 @@ export const ImportWorkflow: React.FC = () => {
         );
 
       case 'preview':
-        if (previewData.length === 0) {
+        if (previewData.length === 0 && !loading) {
+          return (
+            <Box>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Data Preview Required
+                </Typography>
+                <Typography variant="body2">
+                  Click "Load Preview" to review your data before starting the import. 
+                  You must review the preview before proceeding.
+                </Typography>
+              </Alert>
+              
+              <Box textAlign="center" py={4}>
+                <Typography variant="h6" gutterBottom>
+                  Ready to Preview Data
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Data validation is complete. Click the button below to load a preview of your data.
+                </Typography>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={() => loadPreviewData()}
+                  startIcon={<Visibility />}
+                >
+                  Load Preview
+                </Button>
+              </Box>
+            </Box>
+          );
+        }
+
+        if (loading) {
           return (
             <Box textAlign="center" py={4}>
               <Typography variant="h6" gutterBottom>
@@ -930,8 +1207,9 @@ export const ImportWorkflow: React.FC = () => {
             currentStepIndex={safeCurrentStepIndex}
             canGoNext={canProceedToNext()}
             canGoPrevious={canGoPrevious()}
-            isProcessing={isImporting || loading || isValidating}
+            isProcessing={isProcessingStep()}
             progress={isImporting ? currentJob?.progress : undefined}
+            nextButtonText={getNextButtonText()}
             onNext={handleNextStep}
             onPrevious={previousStep}
             onStepClick={handleStepClick}
